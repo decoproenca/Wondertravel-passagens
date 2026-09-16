@@ -35,7 +35,7 @@ public final class MainActivity extends Activity {
             + "&destinationAirport=BPS"
             + "&destinCity="
             + "&destinCountry="
-            + "&destinationAirportIsAny=false"
+            + "&destinAirportIsAny=false"
             + "&novo-resultado-voos=true";
 
     private WebView webView;
