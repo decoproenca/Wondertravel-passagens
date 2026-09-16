@@ -3,68 +3,181 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:fitsSystemWindows="true"
-    android:background="#FFFFFF">
+    android:background="#F5F5F5">
 
     <TextView
-        android:id="@+id/title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#FF6B00"
         android:padding="16dp"
-        android:text="@string/title"
+        android:text="WonderTravel Passagens"
         android:textColor="#FFFFFF"
         android:textSize="20sp"
         android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/status"
+    <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="8dp"
-        android:text="@string/status_home"
-        android:textColor="#333333"
-        android:textSize="14sp" />
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
-    <Button
-        android:id="@+id/testSearch"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="10dp"
-        android:text="@string/test_search"
-        android:textAllCaps="false" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="10dp"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/startMonitor"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Ativar monitor horário"
-            android:textAllCaps="false" />
+            android:orientation="vertical"
+            android:padding="16dp">
 
-        <Button
-            android:id="@+id/stopMonitor"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="Parar monitor"
-            android:textAllCaps="false" />
-    </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Configuração da busca"
+                android:textColor="#222222"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Origem" />
+
+            <Spinner
+                android:id="@+id/originMode"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="#FFFFFF" />
+
+            <EditText
+                android:id="@+id/destination"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFFFF"
+                android:hint="Destino (ex.: BPS)"
+                android:inputType="textCapCharacters"
+                android:maxLength="3"
+                android:padding="12dp" />
+
+            <EditText
+                android:id="@+id/outboundDates"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFFFF"
+                android:hint="Datas de ida: dd/mm/aaaa, dd/mm/aaaa"
+                android:inputType="text"
+                android:padding="12dp" />
+
+            <EditText
+                android:id="@+id/returnDates"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFFFF"
+                android:hint="Datas de volta: dd/mm/aaaa, dd/mm/aaaa"
+                android:inputType="text"
+                android:padding="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/adults"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="#FFFFFF"
+                    android:hint="Adultos"
+                    android:inputType="number"
+                    android:padding="12dp" />
+
+                <EditText
+                    android:id="@+id/children"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:background="#FFFFFF"
+                    android:hint="Crianças"
+                    android:inputType="number"
+                    android:padding="12dp" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/targetMiles"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFFFF"
+                android:hint="Avisar abaixo de quantas milhas?"
+                android:inputType="number"
+                android:padding="12dp" />
+
+            <EditText
+                android:id="@+id/intervalMinutes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFFFF"
+                android:hint="Intervalo em minutos (mínimo 15)"
+                android:inputType="number"
+                android:padding="12dp" />
+
+            <Button
+                android:id="@+id/saveConfig"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Salvar configuração"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/testSearch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Verificar agora"
+                android:textAllCaps="false" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/startMonitor"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Ativar monitor"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/stopMonitor"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="Parar"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="#FFFFFF"
+                android:padding="12dp"
+                android:text="Configure sua busca."
+                android:textColor="#333333"
+                android:textSize="14sp" />
+        </LinearLayout>
+    </ScrollView>
 
     <WebView
         android:id="@+id/webView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_width="1dp"
+        android:layout_height="1dp" />
 </LinearLayout>
