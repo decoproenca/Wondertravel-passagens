@@ -137,9 +137,14 @@ public final class MonitorService extends Service {
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
                     String text = decode(encoded);
-                    int matches = text == null ? 0 : collectPrices(tasks.get(taskIndex), text);
-                    if (matches > 0 && !text.contains("Aguarde enquanto buscamos")) advance();
-                    else if (attempt >= 19) advance();
+                    SearchConfig.Task task = tasks.get(taskIndex);
+                    if (text != null) collectPrices(task, text);
+                    int foundDates = countFoundDates(task);
+                    boolean complete = foundDates >= task.dates.size();
+                    boolean loading = text != null
+                            && text.contains("Aguarde enquanto buscamos");
+                    if (complete && !loading) advance();
+                    else if (attempt >= 29) advance();
                     else handler.postDelayed(() -> inspect(attempt + 1), 3000);
                 });
     }
@@ -179,6 +184,14 @@ public final class MonitorService extends Service {
         return matches;
     }
 
+    private int countFoundDates(SearchConfig.Task task) {
+        int count = 0;
+        for (LocalDate date : task.dates) {
+            if (results.containsKey(task.label + "|" + date)) count++;
+        }
+        return count;
+    }
+
     private int monthNumber(String value) {
         String[] months = {"jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"};
         for (int i = 0; i < months.length; i++) {
@@ -206,7 +219,7 @@ public final class MonitorService extends Service {
                 String key = task.label + "|" + date;
                 PriceResult result = results.get(key);
                 summary.append(task.label).append(" | ").append(task.displayDate(date)).append(": ");
-                if (result == null) summary.append("sem tarifa lida\n");
+                if (result == null) summary.append("não foi possível ler\n");
                 else {
                     summary.append(format(result.miles)).append(" milhas\n");
                     if (lowest == null || result.miles < lowest.miles) lowest = result;
