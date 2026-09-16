@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.os.Build;
@@ -21,8 +22,10 @@ import android.widget.TextView;
 import org.json.JSONTokener;
 
 import java.text.NumberFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +54,7 @@ public final class MainActivity extends Activity {
                     "1792206000000", "1792292400000", 17, 18)
     );
     private final Map<String, PriceResult> results = new LinkedHashMap<>();
+    private final Map<String, Boolean> taskResults = new LinkedHashMap<>();
     private final List<String> notifiedOffers = new ArrayList<>();
 
     private WebView webView;
@@ -71,6 +75,7 @@ public final class MainActivity extends Activity {
         createNotificationChannel();
         requestNotificationPermission();
         configureWebView();
+        restoreLastScan();
 
         scanButton.setOnClickListener(view -> startFullScan());
 
@@ -87,6 +92,7 @@ public final class MainActivity extends Activity {
         }
         scanning = true;
         results.clear();
+        taskResults.clear();
         currentTaskIndex = 0;
         scanButton.setEnabled(false);
         loadCurrentTask();
@@ -214,6 +220,7 @@ public final class MainActivity extends Activity {
                 continue;
             }
 
+            taskResults.put(task.label, true);
             String key = task.label + "|" + day;
             PriceResult existing = results.get(key);
             if (existing == null || miles < existing.miles) {
@@ -243,32 +250,51 @@ public final class MainActivity extends Activity {
         scanButton.setEnabled(true);
         currentTaskIndex = -1;
 
-        if (results.isEmpty()) {
-            status.setText("A varredura terminou, mas nenhuma tarifa foi lida.");
-            return;
-        }
+        String checkedAt = new SimpleDateFormat(
+                "dd/MM/yyyy 'às' HH:mm",
+                new Locale("pt", "BR")
+        ).format(new Date());
+
+        StringBuilder summary = new StringBuilder();
+        summary.append("Varredura concluída em ")
+                .append(checkedAt)
+                .append(".\n");
 
         PriceResult lowest = null;
-        StringBuilder summary = new StringBuilder("Varredura concluída.\n");
 
-        for (PriceResult result : results.values()) {
-            summary.append(result.route)
-                    .append(" | ")
-                    .append(String.format(Locale.getDefault(), "%02d/10", result.day))
-                    .append(": ")
-                    .append(formatMiles(result.miles))
-                    .append(" milhas\n");
+        for (SearchTask task : tasks) {
+            for (int day : task.acceptedDays) {
+                String key = task.label + "|" + day;
+                PriceResult result = results.get(key);
 
-            if (lowest == null || result.miles < lowest.miles) {
-                lowest = result;
-            }
+                summary.append(task.label)
+                        .append(" | ")
+                        .append(String.format(
+                                Locale.getDefault(), "%02d/10", day
+                        ))
+                        .append(": ");
 
-            if (result.miles < TARGET_MILES) {
-                notifyOffer(result);
+                if (result == null) {
+                    summary.append("sem tarifa lida\n");
+                    continue;
+                }
+
+                summary.append(formatMiles(result.miles))
+                        .append(" milhas\n");
+
+                if (lowest == null || result.miles < lowest.miles) {
+                    lowest = result;
+                }
+
+                if (result.miles < TARGET_MILES) {
+                    notifyOffer(result);
+                }
             }
         }
 
-        if (lowest != null) {
+        if (lowest == null) {
+            summary.append("Nenhuma tarifa foi identificada.");
+        } else {
             summary.append("Menor valor: ")
                     .append(formatMiles(lowest.miles))
                     .append(" milhas — ")
@@ -277,7 +303,25 @@ public final class MainActivity extends Activity {
                             : "acima de 31.000.");
         }
 
-        status.setText(summary.toString().trim());
+        String finalSummary = summary.toString().trim();
+        status.setText(finalSummary);
+        saveLastScan(finalSummary);
+    }
+
+    private void saveLastScan(String summary) {
+        getSharedPreferences("monitor", MODE_PRIVATE)
+                .edit()
+                .putString("last_scan", summary)
+                .apply();
+    }
+
+    private void restoreLastScan() {
+        SharedPreferences preferences =
+                getSharedPreferences("monitor", MODE_PRIVATE);
+        String lastScan = preferences.getString("last_scan", null);
+        if (lastScan != null && !lastScan.isEmpty()) {
+            status.setText("Último resultado salvo:\n" + lastScan);
+        }
     }
 
     private String formatMiles(int miles) {
