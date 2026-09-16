@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
 public final class MonitorService extends Service {
     public static final String ACTION_STOP =
             "br.com.wondertravel.passagens.STOP_MONITOR";
-    private static final String STATUS_CHANNEL = "monitor_status";
+    private static final String STATUS_CHANNEL = "monitor_status_visible_v2";
     private static final String ALERT_CHANNEL = "price_alerts";
     private static final int STATUS_NOTIFICATION_ID = 7001;
     private static final int TARGET_MILES = 31_000;
@@ -294,8 +294,11 @@ public final class MonitorService extends Service {
             NotificationChannel status = new NotificationChannel(
                     STATUS_CHANNEL,
                     "Monitor de passagens",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
             );
+            status.setSound(null, null);
+            status.enableVibration(false);
+            status.setShowBadge(false);
             status.setDescription(
                     "Mantém a verificação horária ativa."
             );
@@ -335,6 +338,8 @@ public final class MonitorService extends Service {
                 .setContentTitle("WonderTravel monitor")
                 .setContentText(message)
                 .setContentIntent(openPending)
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .addAction(
                         android.R.drawable.ic_menu_close_clear_cancel,
