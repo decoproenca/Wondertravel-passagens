@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     private Button scanButton;
     private int currentTaskIndex = -1;
     private boolean scanning;
+    private String savedSummary;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -159,7 +160,11 @@ public final class MainActivity extends Activity {
                 if (scanning && url.contains("/mfe/emissao-passagem")) {
                     handler.postDelayed(() -> inspectCurrentTask(0), 5_000);
                 } else if (!scanning) {
-                    status.setText("Smiles carregada. Toque em “Verificar agora”.");
+                    if (savedSummary != null && !savedSummary.isEmpty()) {
+                        status.setText("Último resultado salvo:\n" + savedSummary);
+                    } else {
+                        status.setText("Smiles carregada. Toque em “Verificar agora”.");
+                    }
                 }
             }
         });
@@ -304,6 +309,7 @@ public final class MainActivity extends Activity {
         }
 
         String finalSummary = summary.toString().trim();
+        savedSummary = finalSummary;
         status.setText(finalSummary);
         saveLastScan(finalSummary);
     }
@@ -318,9 +324,9 @@ public final class MainActivity extends Activity {
     private void restoreLastScan() {
         SharedPreferences preferences =
                 getSharedPreferences("monitor", MODE_PRIVATE);
-        String lastScan = preferences.getString("last_scan", null);
-        if (lastScan != null && !lastScan.isEmpty()) {
-            status.setText("Último resultado salvo:\n" + lastScan);
+        savedSummary = preferences.getString("last_scan", null);
+        if (savedSummary != null && !savedSummary.isEmpty()) {
+            status.setText("Último resultado salvo:\n" + savedSummary);
         }
     }
 
