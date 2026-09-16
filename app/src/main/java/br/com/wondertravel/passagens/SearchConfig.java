@@ -159,7 +159,4 @@ public final class SearchConfig {
         }
     }
 
-    private SearchConfig() {
-        throw new AssertionError();
-    }
 }
