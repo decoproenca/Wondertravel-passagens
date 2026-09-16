@@ -161,6 +161,34 @@ try {
   error = caught instanceof Error ? caught.message : String(caught);
 }
 
+const flightApiRequest = relevantRequests.find(({ url }) =>
+  url.startsWith("https://api-air-flightsearch-blue.smiles.com.br/"),
+);
+let directApiProbe = null;
+
+if (flightApiRequest) {
+  try {
+    const response = await fetch(flightApiRequest.url, {
+      headers: {
+        Accept: "application/json",
+        Origin: "https://www.smiles.com.br",
+        Referer: "https://www.smiles.com.br/",
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+    const responseText = await response.text();
+    directApiProbe = {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      bodyPreview: responseText.slice(0, 100_000),
+    };
+  } catch (caught) {
+    directApiProbe = {
+      error: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
+}
+
 const pageText = (await page.locator("body").innerText().catch(() => ""))
   .replace(/\s+/g, " ")
   .slice(0, 30_000);
@@ -180,6 +208,7 @@ const result = {
   pageText,
   relevantRequests,
   failedRequests,
+  directApiProbe,
   candidateResponses,
   validation: {
     automatedPriceAlertEnabled: false,
@@ -200,6 +229,7 @@ console.log(JSON.stringify({
   finalUrl: result.finalUrl,
   relevantRequests: relevantRequests.length,
   failedRequests: failedRequests.length,
+  directApiStatus: directApiProbe?.status ?? null,
   candidateResponses: candidateResponses.length,
 }));
 
