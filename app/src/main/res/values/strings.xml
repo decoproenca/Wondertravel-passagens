@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WonderTravel Passagens</string>
+    <string name="title">WonderTravel Passagens</string>
+    <string name="status_home">Abra a consulta para validar a Smiles no celular.</string>
+    <string name="test_search">Testar GRU → BPS</string>
+</resources>
