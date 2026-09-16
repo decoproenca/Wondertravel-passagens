@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -72,6 +73,8 @@ public final class MainActivity extends Activity {
         status = findViewById(R.id.status);
         webView = findViewById(R.id.webView);
         scanButton = findViewById(R.id.testSearch);
+        Button startMonitor = findViewById(R.id.startMonitor);
+        Button stopMonitor = findViewById(R.id.stopMonitor);
 
         createNotificationChannel();
         requestNotificationPermission();
@@ -79,6 +82,21 @@ public final class MainActivity extends Activity {
         restoreLastScan();
 
         scanButton.setOnClickListener(view -> startFullScan());
+        startMonitor.setOnClickListener(view -> {
+            Intent service = new Intent(this, MonitorService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(service);
+            } else {
+                startService(service);
+            }
+            status.setText("Monitor horário ativado. A primeira varredura começou.");
+        });
+        stopMonitor.setOnClickListener(view -> {
+            Intent service = new Intent(this, MonitorService.class);
+            service.setAction(MonitorService.ACTION_STOP);
+            startService(service);
+            status.setText("Monitor horário desativado.");
+        });
 
         if (savedInstanceState == null) {
             webView.loadUrl(SMILES_HOME);
@@ -388,6 +406,14 @@ public final class MainActivity extends Activity {
         NotificationManager manager =
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.notify(offerKey.hashCode(), notification);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!scanning) {
+            restoreLastScan();
+        }
     }
 
     @Override
