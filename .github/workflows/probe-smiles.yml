@@ -1,0 +1,39 @@
+name: Testar consulta Smiles
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar dependências
+        run: npm install --ignore-scripts
+
+      - name: Instalar navegador
+        run: npx playwright install --with-deps chromium
+
+      - name: Executar consulta de validação
+        run: npm run probe
+
+      - name: Guardar evidências
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smiles-probe
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7
