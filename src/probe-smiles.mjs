@@ -40,6 +40,17 @@ const page = await browser.newPage({
 });
 
 const candidateResponses = [];
+const relevantRequests = [];
+page.on("request", (request) => {
+  const url = request.url();
+  if (/flight|availability|fare|offer|graphql|search/i.test(url)) {
+    const parsedUrl = new URL(url);
+    relevantRequests.push({
+      method: request.method(),
+      url: parsedUrl.origin + parsedUrl.pathname,
+    });
+  }
+});
 page.on("response", async (response) => {
   const url = response.url();
   if (!/flight|availability|fare|offer/i.test(url)) return;
@@ -134,6 +145,7 @@ const result = {
   finalUrl: page.url(),
   title: await page.title().catch(() => ""),
   pageText,
+  relevantRequests,
   candidateResponses,
   validation: {
     automatedPriceAlertEnabled: false,
@@ -152,6 +164,7 @@ await writeFile(
 console.log(JSON.stringify({
   status,
   finalUrl: result.finalUrl,
+  relevantRequests: relevantRequests.length,
   candidateResponses: candidateResponses.length,
 }));
 
