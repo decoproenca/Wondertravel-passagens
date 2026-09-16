@@ -147,7 +147,8 @@ public final class SearchConfig {
         }
 
         long departureTimestamp() {
-            return dates.get(0).atTime(12, 0)
+            LocalDate centerDate = dates.get(dates.size() / 2);
+            return centerDate.atTime(12, 0)
                     .atZone(ZoneId.of("America/Sao_Paulo"))
                     .toInstant().toEpochMilli();
         }
