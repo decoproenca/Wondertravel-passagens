@@ -4,9 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.os.Build;
@@ -17,15 +15,18 @@ import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONTokener;
 
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,121 +36,180 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class MainActivity extends Activity {
-    private static final int TARGET_MILES = 31_000;
-    private static final String CHANNEL_ID = "price_alerts";
-    private static final String SMILES_HOME =
-            "https://www.smiles.com.br/portal/passagens";
-    private static final Pattern DATE_PRICE_PATTERN = Pattern.compile(
-            "(?i)(\\d{1,2})\\s+out\\s+(\\d{1,3}(?:\\.\\d{3})+)\\s+milhas"
+    private static final String ALERT_CHANNEL = "price_alerts";
+    private static final String SMILES_HOME = "https://www.smiles.com.br/portal/passagens";
+    private static final Pattern PRICE_PATTERN = Pattern.compile(
+            "(?i)(\\d{1,2})\\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)"
+                    + "\\s+(\\d{1,3}(?:\\.\\d{3})+)\\s+milhas"
     );
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final List<SearchTask> tasks = Arrays.asList(
-            new SearchTask("GRU", "BPS", "GRU → BPS",
-                    "1791601200000", "1792206000000", 9, 10, 11),
-            new SearchTask("CGH", "BPS", "CGH → BPS",
-                    "1791601200000", "1792206000000", 9, 10, 11),
-            new SearchTask("BPS", "GRU", "BPS → GRU",
-                    "1792206000000", "1792292400000", 17, 18),
-            new SearchTask("BPS", "CGH", "BPS → CGH",
-                    "1792206000000", "1792292400000", 17, 18)
-    );
     private final Map<String, PriceResult> results = new LinkedHashMap<>();
-    private final Map<String, Boolean> taskResults = new LinkedHashMap<>();
-    private final List<String> notifiedOffers = new ArrayList<>();
 
-    private WebView webView;
+    private Spinner originMode;
+    private EditText destination;
+    private EditText outboundDates;
+    private EditText returnDates;
+    private EditText adults;
+    private EditText children;
+    private EditText targetMiles;
+    private EditText intervalMinutes;
     private TextView status;
+    private WebView webView;
     private Button scanButton;
-    private int currentTaskIndex = -1;
+    private SearchConfig config;
+    private List<SearchConfig.Task> tasks;
+    private int taskIndex = -1;
     private boolean scanning;
-    private String savedSummary;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
         setContentView(R.layout.activity_main);
-
-        status = findViewById(R.id.status);
-        webView = findViewById(R.id.webView);
-        scanButton = findViewById(R.id.testSearch);
-        Button startMonitor = findViewById(R.id.startMonitor);
-        Button stopMonitor = findViewById(R.id.stopMonitor);
-
+        bindViews();
+        setupOriginSpinner();
+        loadForm(SearchConfig.load(this));
         createNotificationChannel();
         requestNotificationPermission();
         configureWebView();
         restoreLastScan();
 
-        scanButton.setOnClickListener(view -> startFullScan());
-        startMonitor.setOnClickListener(view -> {
-            Intent service = new Intent(this, MonitorService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(service);
-            } else {
-                startService(service);
+        findViewById(R.id.saveConfig).setOnClickListener(v -> {
+            SearchConfig saved = saveForm();
+            if (saved != null) {
+                status.setText("Configuração salva. Toque em “Ativar monitor”.");
             }
-            status.setText("Monitor horário ativado. A primeira varredura começou.");
         });
-        stopMonitor.setOnClickListener(view -> {
+        scanButton.setOnClickListener(v -> {
+            if (saveForm() != null) startScan();
+        });
+        findViewById(R.id.startMonitor).setOnClickListener(v -> {
+            SearchConfig saved = saveForm();
+            if (saved == null) return;
+            Intent service = new Intent(this, MonitorService.class);
+            service.setAction(MonitorService.ACTION_RELOAD);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service);
+            else startService(service);
+            status.setText("Monitor ativo. A primeira varredura começou.");
+        });
+        findViewById(R.id.stopMonitor).setOnClickListener(v -> {
             Intent service = new Intent(this, MonitorService.class);
             service.setAction(MonitorService.ACTION_STOP);
             startService(service);
-            status.setText("Monitor horário desativado.");
+            status.setText("Monitor desativado.");
         });
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(SMILES_HOME);
-        } else {
-            webView.restoreState(savedInstanceState);
+        if (state == null) webView.loadUrl(SMILES_HOME);
+        else webView.restoreState(state);
+    }
+
+    private void bindViews() {
+        originMode = findViewById(R.id.originMode);
+        destination = findViewById(R.id.destination);
+        outboundDates = findViewById(R.id.outboundDates);
+        returnDates = findViewById(R.id.returnDates);
+        adults = findViewById(R.id.adults);
+        children = findViewById(R.id.children);
+        targetMiles = findViewById(R.id.targetMiles);
+        intervalMinutes = findViewById(R.id.intervalMinutes);
+        status = findViewById(R.id.status);
+        webView = findViewById(R.id.webView);
+        scanButton = findViewById(R.id.testSearch);
+    }
+
+    private void setupOriginSpinner() {
+        String[] values = {"São Paulo (GRU + CGH)", "GRU", "CGH"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, values);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        originMode.setAdapter(adapter);
+    }
+
+    private void loadForm(SearchConfig c) {
+        for (int i = 0; i < originMode.getCount(); i++) {
+            if (originMode.getItemAtPosition(i).toString().equals(c.originMode)) {
+                originMode.setSelection(i);
+                break;
+            }
+        }
+        destination.setText(c.destination);
+        outboundDates.setText(c.outboundDates);
+        returnDates.setText(c.returnDates);
+        adults.setText(String.valueOf(c.adults));
+        children.setText(String.valueOf(c.children));
+        targetMiles.setText(String.valueOf(c.targetMiles));
+        intervalMinutes.setText(String.valueOf(c.intervalMinutes));
+    }
+
+    private SearchConfig saveForm() {
+        try {
+            SearchConfig candidate = new SearchConfig(
+                    originMode.getSelectedItem().toString(),
+                    destination.getText().toString(),
+                    outboundDates.getText().toString(),
+                    returnDates.getText().toString(),
+                    number(adults, "adultos"),
+                    number(children, "crianças"),
+                    number(targetMiles, "limite de milhas"),
+                    number(intervalMinutes, "intervalo")
+            );
+            candidate.createTasks();
+            candidate.save(this);
+            config = candidate;
+            Toast.makeText(this, "Configuração salva.", Toast.LENGTH_SHORT).show();
+            return candidate;
+        } catch (IllegalArgumentException error) {
+            status.setText("Revise a configuração: " + error.getMessage());
+            return null;
         }
     }
 
-    private void startFullScan() {
-        if (scanning) {
+    private int number(EditText field, String label) {
+        try {
+            return Integer.parseInt(field.getText().toString().trim());
+        } catch (Exception error) {
+            throw new IllegalArgumentException("Informe " + label + ".");
+        }
+    }
+
+    private void startScan() {
+        if (scanning) return;
+        config = SearchConfig.load(this);
+        try {
+            tasks = config.createTasks();
+        } catch (IllegalArgumentException error) {
+            status.setText(error.getMessage());
             return;
         }
         scanning = true;
         results.clear();
-        taskResults.clear();
-        currentTaskIndex = 0;
+        taskIndex = 0;
         scanButton.setEnabled(false);
-        loadCurrentTask();
+        loadTask();
     }
 
-    private void loadCurrentTask() {
-        if (currentTaskIndex >= tasks.size()) {
+    private void loadTask() {
+        if (taskIndex >= tasks.size()) {
             finishScan();
             return;
         }
-
-        SearchTask task = tasks.get(currentTaskIndex);
-        status.setText("Verificando " + (currentTaskIndex + 1) + "/"
-                + tasks.size() + ": " + task.label + "...");
-        webView.loadUrl(buildSearchUrl(task));
+        SearchConfig.Task task = tasks.get(taskIndex);
+        status.setText("Verificando " + (taskIndex + 1) + "/" + tasks.size()
+                + ": " + task.label + "...");
+        webView.loadUrl(buildUrl(task));
     }
 
-    private String buildSearchUrl(SearchTask task) {
+    private String buildUrl(SearchConfig.Task task) {
         return "https://www.smiles.com.br/mfe/emissao-passagem/"
-                + "?adults=2"
-                + "&cabin=ECONOMIC"
-                + "&children=2"
-                + "&departureDate=" + task.departureTimestamp
-                + "&infants=0"
-                + "&isElegible=false"
-                + "&isFlexibleDateChecked=false"
-                + "&returnDate=" + task.returnTimestamp
-                + "&searchType=g3"
-                + "&segments=1"
-                + "&tripType=1"
+                + "?adults=" + config.adults + "&cabin=ECONOMIC&children=" + config.children
+                + "&departureDate=" + task.departureTimestamp()
+                + "&infants=0&isElegible=false&isFlexibleDateChecked=false"
+                + "&returnDate=" + task.returnTimestamp()
+                + "&searchType=g3&segments=1&tripType=1"
                 + "&originAirport=" + task.from
-                + "&originCity="
-                + "&originCountry="
-                + "&originAirportIsAny=false"
+                + "&originCity=&originCountry=&originAirportIsAny=false"
                 + "&destinationAirport=" + task.to
-                + "&destinCity="
-                + "&destinCountry="
-                + "&destinAirportIsAny=false"
+                + "&destinCity=&destinCountry=&destinAirportIsAny=false"
                 + "&novo-resultado-voos=true";
     }
 
@@ -158,212 +218,132 @@ public final class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-
-        CookieManager cookies = CookieManager.getInstance();
-        cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookies(webView, true);
-
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (!scanning) {
-                    status.setText("Carregando...");
-                }
+                if (!scanning) status.setText("Carregando...");
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (scanning && url.contains("/mfe/emissao-passagem")) {
-                    handler.postDelayed(() -> inspectCurrentTask(0), 5_000);
+                    handler.postDelayed(() -> inspect(0), 7000);
                 } else if (!scanning) {
-                    if (savedSummary != null && !savedSummary.isEmpty()) {
-                        status.setText("Último resultado salvo:\n" + savedSummary);
-                    } else {
-                        status.setText("Smiles carregada. Toque em “Verificar agora”.");
-                    }
+                    restoreLastScan();
                 }
             }
         });
     }
 
-    private void inspectCurrentTask(int attempt) {
-        if (!scanning || currentTaskIndex < 0
-                || currentTaskIndex >= tasks.size()) {
-            return;
-        }
-
+    private void inspect(int attempt) {
+        if (!scanning || taskIndex < 0 || taskIndex >= tasks.size()) return;
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
-                    String pageText = decodeJavascriptString(encoded);
-                    if (pageText == null) {
-                        retryOrAdvance(attempt);
-                        return;
-                    }
-
-                    int matches = collectPrices(tasks.get(currentTaskIndex), pageText);
-                    boolean stillLoading =
-                            pageText.contains("Aguarde enquanto buscamos");
-
-                    if (matches > 0 && !stillLoading) {
-                        advanceTask();
-                    } else {
-                        retryOrAdvance(attempt);
-                    }
-                }
-        );
+                    String text = decode(encoded);
+                    int matches = text == null ? 0 : collectPrices(tasks.get(taskIndex), text);
+                    if (matches > 0 && !text.contains("Aguarde enquanto buscamos")) advance();
+                    else if (attempt >= 19) advance();
+                    else handler.postDelayed(() -> inspect(attempt + 1), 3000);
+                });
     }
 
-    private String decodeJavascriptString(String encoded) {
+    private String decode(String encoded) {
         try {
-            Object decoded = new JSONTokener(encoded).nextValue();
-            return decoded instanceof String ? (String) decoded : null;
-        } catch (Exception ignored) {
+            Object value = new JSONTokener(encoded).nextValue();
+            return value instanceof String ? (String) value : null;
+        } catch (Exception error) {
             return null;
         }
     }
 
-    private int collectPrices(SearchTask task, String pageText) {
-        Matcher matcher = DATE_PRICE_PATTERN.matcher(pageText);
+    private int collectPrices(SearchConfig.Task task, String text) {
+        Matcher matcher = PRICE_PATTERN.matcher(text);
         int matches = 0;
-
         while (matcher.find()) {
-            int day;
-            int miles;
-            try {
-                day = Integer.parseInt(matcher.group(1));
-                miles = Integer.parseInt(matcher.group(2).replace(".", ""));
-            } catch (NumberFormatException ignored) {
-                continue;
+            int day = Integer.parseInt(matcher.group(1));
+            int month = monthNumber(matcher.group(2));
+            int miles = Integer.parseInt(matcher.group(3).replace(".", ""));
+            if (!task.accepts(day, month)) continue;
+            for (LocalDate date : task.dates) {
+                if (date.getDayOfMonth() == day && date.getMonthValue() == month) {
+                    String key = task.label + "|" + date;
+                    PriceResult old = results.get(key);
+                    if (old == null || miles < old.miles) {
+                        results.put(key, new PriceResult(task.label, date, miles));
+                    }
+                    matches++;
+                    break;
+                }
             }
-
-            if (!task.acceptsDay(day)) {
-                continue;
-            }
-
-            taskResults.put(task.label, true);
-            String key = task.label + "|" + day;
-            PriceResult existing = results.get(key);
-            if (existing == null || miles < existing.miles) {
-                results.put(key, new PriceResult(task.label, day, miles));
-            }
-            matches++;
         }
-
         return matches;
     }
 
-    private void retryOrAdvance(int attempt) {
-        if (attempt >= 19) {
-            advanceTask();
-            return;
+    private int monthNumber(String value) {
+        String[] months = {"jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"};
+        for (int i = 0; i < months.length; i++) {
+            if (months[i].equals(value.toLowerCase(Locale.ROOT))) return i + 1;
         }
-        handler.postDelayed(() -> inspectCurrentTask(attempt + 1), 3_000);
+        return 0;
     }
 
-    private void advanceTask() {
-        currentTaskIndex++;
-        handler.postDelayed(this::loadCurrentTask, 1_500);
+    private void advance() {
+        taskIndex++;
+        handler.postDelayed(this::loadTask, 1500);
     }
 
     private void finishScan() {
         scanning = false;
+        taskIndex = -1;
         scanButton.setEnabled(true);
-        currentTaskIndex = -1;
-
-        String checkedAt = new SimpleDateFormat(
-                "dd/MM/yyyy 'às' HH:mm",
-                new Locale("pt", "BR")
-        ).format(new Date());
-
-        StringBuilder summary = new StringBuilder();
-        summary.append("Varredura concluída em ")
-                .append(checkedAt)
-                .append(".\n");
-
+        String checkedAt = new SimpleDateFormat("dd/MM/yyyy 'às' HH:mm",
+                new Locale("pt", "BR")).format(new Date());
+        StringBuilder summary = new StringBuilder("Varredura concluída em ")
+                .append(checkedAt).append(".\n");
         PriceResult lowest = null;
 
-        for (SearchTask task : tasks) {
-            for (int day : task.acceptedDays) {
-                String key = task.label + "|" + day;
-                PriceResult result = results.get(key);
-
-                summary.append(task.label)
-                        .append(" | ")
-                        .append(String.format(
-                                Locale.getDefault(), "%02d/10", day
-                        ))
-                        .append(": ");
-
-                if (result == null) {
-                    summary.append("sem tarifa lida\n");
-                    continue;
-                }
-
-                summary.append(formatMiles(result.miles))
-                        .append(" milhas\n");
-
-                if (lowest == null || result.miles < lowest.miles) {
-                    lowest = result;
-                }
-
-                if (result.miles < TARGET_MILES) {
-                    notifyOffer(result);
+        for (SearchConfig.Task task : tasks) {
+            for (LocalDate date : task.dates) {
+                PriceResult result = results.get(task.label + "|" + date);
+                summary.append(task.label).append(" | ").append(task.displayDate(date)).append(": ");
+                if (result == null) summary.append("sem tarifa lida\n");
+                else {
+                    summary.append(format(result.miles)).append(" milhas\n");
+                    if (lowest == null || result.miles < lowest.miles) lowest = result;
                 }
             }
         }
+        if (lowest == null) summary.append("Nenhuma tarifa foi identificada.");
+        else summary.append("Menor valor: ").append(format(lowest.miles)).append(" milhas — ")
+                .append(lowest.miles < config.targetMiles ? "OPORTUNIDADE!" :
+                        "acima de " + format(config.targetMiles) + ".");
 
-        if (lowest == null) {
-            summary.append("Nenhuma tarifa foi identificada.");
-        } else {
-            summary.append("Menor valor: ")
-                    .append(formatMiles(lowest.miles))
-                    .append(" milhas — ")
-                    .append(lowest.miles < TARGET_MILES
-                            ? "OPORTUNIDADE!"
-                            : "acima de 31.000.");
-        }
-
-        String finalSummary = summary.toString().trim();
-        savedSummary = finalSummary;
-        status.setText(finalSummary);
-        saveLastScan(finalSummary);
+        String finalText = summary.toString().trim();
+        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                .putString("last_scan", finalText).apply();
+        status.setText(finalText);
     }
 
-    private void saveLastScan(String summary) {
-        getSharedPreferences("monitor", MODE_PRIVATE)
-                .edit()
-                .putString("last_scan", summary)
-                .apply();
+    private String format(int value) {
+        return NumberFormat.getIntegerInstance(new Locale("pt", "BR")).format(value);
     }
 
     private void restoreLastScan() {
-        SharedPreferences preferences =
-                getSharedPreferences("monitor", MODE_PRIVATE);
-        savedSummary = preferences.getString("last_scan", null);
-        if (savedSummary != null && !savedSummary.isEmpty()) {
-            status.setText("Último resultado salvo:\n" + savedSummary);
-        }
-    }
-
-    private String formatMiles(int miles) {
-        return NumberFormat.getIntegerInstance(
-                new Locale("pt", "BR")
-        ).format(miles);
+        String saved = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getString("last_scan", "");
+        if (!saved.isEmpty()) status.setText("Último resultado salvo:\n" + saved);
+        else status.setText("Configuração pronta. Salve ou ative o monitor.");
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Alertas de passagens",
-                    NotificationManager.IMPORTANCE_HIGH
-            );
-            channel.setDescription("Oportunidades abaixo do limite de milhas.");
-            getSystemService(NotificationManager.class)
-                    .createNotificationChannel(channel);
+                    ALERT_CHANNEL, "Alertas de oportunidades",
+                    NotificationManager.IMPORTANCE_HIGH);
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
 
@@ -371,64 +351,20 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(
-                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                    100
-            );
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 100);
         }
-    }
-
-    private void notifyOffer(PriceResult result) {
-        String offerKey = result.route + "|" + result.day + "|" + result.miles;
-        if (notifiedOffers.contains(offerKey)) {
-            return;
-        }
-        notifiedOffers.add(offerKey);
-
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-
-        String date = String.format(
-                Locale.getDefault(), "%02d/10", result.day
-        );
-        android.app.Notification notification =
-                new android.app.Notification.Builder(this, CHANNEL_ID)
-                        .setSmallIcon(android.R.drawable.ic_dialog_info)
-                        .setContentTitle("Passagem abaixo de 31 mil")
-                        .setContentText(result.route + " em " + date + ": "
-                                + formatMiles(result.miles) + " milhas.")
-                        .setAutoCancel(true)
-                        .build();
-
-        NotificationManager manager =
-                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        manager.notify(offerKey.hashCode(), notification);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (!scanning) {
-            restoreLastScan();
-        }
+        if (!scanning) restoreLastScan();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         webView.saveState(outState);
         super.onSaveInstanceState(outState);
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
     }
 
     @Override
@@ -441,48 +377,14 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private static final class SearchTask {
-        final String from;
-        final String to;
-        final String label;
-        final String departureTimestamp;
-        final String returnTimestamp;
-        final int[] acceptedDays;
-
-        SearchTask(
-                String from,
-                String to,
-                String label,
-                String departureTimestamp,
-                String returnTimestamp,
-                int... acceptedDays
-        ) {
-            this.from = from;
-            this.to = to;
-            this.label = label;
-            this.departureTimestamp = departureTimestamp;
-            this.returnTimestamp = returnTimestamp;
-            this.acceptedDays = acceptedDays;
-        }
-
-        boolean acceptsDay(int day) {
-            for (int acceptedDay : acceptedDays) {
-                if (day == acceptedDay) {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
-
     private static final class PriceResult {
         final String route;
-        final int day;
+        final LocalDate date;
         final int miles;
 
-        PriceResult(String route, int day, int miles) {
+        PriceResult(String route, LocalDate date, int miles) {
             this.route = route;
-            this.day = day;
+            this.date = date;
             this.miles = miles;
         }
     }
