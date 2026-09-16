@@ -41,13 +41,28 @@ const page = await browser.newPage({
 
 const candidateResponses = [];
 const relevantRequests = [];
+const failedRequests = [];
 page.on("request", (request) => {
   const url = request.url();
   if (/flight|availability|fare|offer|graphql|search/i.test(url)) {
     const parsedUrl = new URL(url);
+    const safeUrl = parsedUrl.hostname === "api-air-flightsearch-blue.smiles.com.br"
+      ? url
+      : parsedUrl.origin + parsedUrl.pathname;
     relevantRequests.push({
       method: request.method(),
+      url: safeUrl,
+    });
+  }
+});
+page.on("requestfailed", (request) => {
+  const url = request.url();
+  if (/flight|availability|fare|offer|graphql|search/i.test(url)) {
+    const parsedUrl = new URL(url);
+    failedRequests.push({
+      method: request.method(),
       url: parsedUrl.origin + parsedUrl.pathname,
+      failure: request.failure()?.errorText ?? "unknown",
     });
   }
 });
@@ -146,6 +161,7 @@ const result = {
   title: await page.title().catch(() => ""),
   pageText,
   relevantRequests,
+  failedRequests,
   candidateResponses,
   validation: {
     automatedPriceAlertEnabled: false,
@@ -165,6 +181,7 @@ console.log(JSON.stringify({
   status,
   finalUrl: result.finalUrl,
   relevantRequests: relevantRequests.length,
+  failedRequests: failedRequests.length,
   candidateResponses: candidateResponses.length,
 }));
 
