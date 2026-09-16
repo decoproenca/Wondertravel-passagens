@@ -88,12 +88,30 @@ page.on("response", async (response) => {
 
 async function selectAirport(fieldName, code) {
   const field = page.getByRole("textbox", { name: fieldName });
-  await field.fill(airportNames[code]);
-  const option = page.getByRole("button", {
-    name: new RegExp(`${airportNames[code]}.*${code}`, "i"),
-  });
-  await option.waitFor({ state: "visible", timeout: 15_000 });
-  await option.click();
+  const terms = [airportNames[code], code];
+
+  if (code === "GRU" || code === "CGH") terms.push("São Paulo");
+
+  for (const term of terms) {
+    await field.fill("");
+    await field.pressSequentially(term, { delay: 120 });
+    await page.waitForTimeout(2_500);
+
+    const option = page
+      .locator("button")
+      .filter({ hasText: airportNames[code] })
+      .filter({ hasText: code })
+      .first();
+
+    if (await option.isVisible().catch(() => false)) {
+      await option.click();
+      return;
+    }
+  }
+
+  throw new Error(
+    `A Smiles não ofereceu ${airportNames[code]} (${code}) no autocomplete.`,
+  );
 }
 
 let status = "unknown";
