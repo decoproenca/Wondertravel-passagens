@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "br.com.wondertravel.monitor.v4"
+        applicationId "br.com.wondertravel.monitor.v5"
         minSdk 26
-        targetSdk 35
-        versionCode 4
-        versionName "0.4.0"
+        targetSdk 34
+        versionCode 5
+        versionName "0.5.0"
     }
 
     compileOptions {
