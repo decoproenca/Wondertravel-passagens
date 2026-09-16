@@ -30,3 +30,9 @@ No GitHub, abra **Actions → Testar consulta Smiles → Run workflow**. Ao term
 ## Regra dos aeroportos de São Paulo
 
 A busca aceita somente Guarulhos (GRU) e Congonhas (CGH). Viracopos (VCP) fica excluído. Se a Smiles oferecer “São Paulo (Todos)”, cada resultado ainda será validado pelo aeroporto real de partida ou chegada.
+
+## Resultado da prova de conceito no GitHub Actions
+
+Em 16/09/2026, o navegador automatizado preencheu a busca corretamente e chamou a API oficial de voos da Smiles. A chamada pelo navegador falhou e a repetição direta pelo servidor recebeu HTTP 406, com mensagem genérica e identificação do IP de saída do GitHub.
+
+Conclusão: o GitHub Actions pode hospedar o código gratuitamente, mas seu ambiente de rede não consegue obter as tarifas da Smiles de forma confiável. O agendamento horário permanece desativado. Não serão adicionadas técnicas para contornar o bloqueio da Smiles.
