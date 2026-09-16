@@ -5,20 +5,30 @@ const search = {
   from: process.env.FROM ?? "GRU",
   to: process.env.TO ?? "BPS",
   departureDate: process.env.DEPARTURE_DATE ?? "2026-10-09",
-  numAdults: Number(process.env.NUM_ADULTS ?? 2),
-  numChildren: Number(process.env.NUM_CHILDREN ?? 2),
-  numInfants: 0,
-  cabin: "ALL",
+  returnDate: process.env.RETURN_DATE ?? "2026-10-17",
+  numAdults: 2,
+  numChildren: 2,
 };
 
-if (search.numAdults + search.numChildren !== 4) {
-  throw new Error("A prova deve consultar os quatro passageiros juntos.");
+const airportNames = {
+  GRU: "Guarulhos",
+  CGH: "Congonhas",
+  VCP: "Viracopos",
+  BPS: "Porto Seguro",
+};
+
+const dateLabels = {
+  "2026-10-09": /Choose sexta-feira, 9 de outubro de 2026/,
+  "2026-10-17": /Choose sábado, 17 de outubro de 2026/,
+};
+
+if (!airportNames[search.from] || !airportNames[search.to]) {
+  throw new Error("Aeroporto não configurado para esta prova.");
+}
+if (!dateLabels[search.departureDate] || !dateLabels[search.returnDate]) {
+  throw new Error("Data não configurada para esta prova.");
 }
 
-const query = new URLSearchParams(
-  Object.entries(search).map(([key, value]) => [key, String(value)]),
-);
-const searchUrl = `https://www.smiles.com.br/passagens-aereas?${query}`;
 const outputDir = "artifacts";
 await mkdir(outputDir, { recursive: true });
 
@@ -31,42 +41,85 @@ const page = await browser.newPage({
 
 const candidateResponses = [];
 page.on("response", async (response) => {
-  const contentType = response.headers()["content-type"] ?? "";
-  if (!contentType.includes("json")) return;
-
+  const url = response.url();
+  if (!/flight|availability|fare|offer/i.test(url)) return;
+  const parsedUrl = new URL(url);
+  const record = {
+    status: response.status(),
+    url: parsedUrl.origin + parsedUrl.pathname,
+  };
   try {
     const body = await response.json();
     const serialized = JSON.stringify(body);
-    if (/mile|milha|fare|flight|offer/i.test(serialized)) {
-      const parsedUrl = new URL(response.url());
-      candidateResponses.push({
-        status: response.status(),
-        url: parsedUrl.origin + parsedUrl.pathname,
-        body,
-      });
-    }
+    record.body = serialized.length <= 250_000
+      ? body
+      : { truncated: true, size: serialized.length };
   } catch {
-    // Algumas respostas declaram JSON, mas chegam vazias ou incompletas.
+    record.body = null;
   }
+  candidateResponses.push(record);
 });
+
+async function selectAirport(fieldName, code) {
+  const field = page.getByRole("textbox", { name: fieldName });
+  await field.fill(airportNames[code]);
+  const option = page.getByRole("button", {
+    name: new RegExp(`${airportNames[code]}.*${code}`, "i"),
+  });
+  await option.waitFor({ state: "visible", timeout: 15_000 });
+  await option.click();
+}
 
 let status = "unknown";
 let error = null;
+
 try {
-  const response = await page.goto(searchUrl, {
+  await page.goto("https://www.smiles.com.br/portal/passagens", {
     waitUntil: "domcontentloaded",
     timeout: 90_000,
   });
-  await page.waitForTimeout(30_000);
-  status = response?.status() === 200 ? "page_loaded" : "page_unexpected_status";
+
+  const rejectCookies = page.getByRole("button", { name: "Rejeitar todos" });
+  if (await rejectCookies.isVisible().catch(() => false)) {
+    await rejectCookies.click();
+  }
+
+  await selectAirport("Origem", search.from);
+  await selectAirport("Destino", search.to);
+
+  await page.getByRole("button", { name: /1 pessoa adulta/ }).click();
+  await page.locator("#btn_addAdultPerson").click();
+  await page.locator("#btn_addChildren").click();
+  await page.locator("#btn_addChildren").click();
+  await page.locator("#btn_confirmPassagers").click();
+
+  await page.getByRole("textbox", { name: "Ida" }).click();
+  await page.getByRole("button", {
+    name: dateLabels[search.departureDate],
+  }).click();
+  await page.getByRole("button", {
+    name: dateLabels[search.returnDate],
+  }).click();
+  await page.getByRole("button", { name: "Confirmar", exact: true }).click();
+
+  await Promise.all([
+    page.waitForURL(/mfe\/emissao-passagem/, { timeout: 90_000 }),
+    page.getByRole("button", { name: "Buscar voos" }).click(),
+  ]);
+
+  await page.waitForTimeout(75_000);
+  const bodyText = await page.locator("body").innerText();
+  status = /Aguarde enquanto buscamos os melhores voos/i.test(bodyText)
+    ? "results_not_loaded"
+    : "results_page_loaded";
 } catch (caught) {
-  status = "navigation_failed";
+  status = "interaction_failed";
   error = caught instanceof Error ? caught.message : String(caught);
 }
 
 const pageText = (await page.locator("body").innerText().catch(() => ""))
   .replace(/\s+/g, " ")
-  .slice(0, 20_000);
+  .slice(0, 30_000);
 
 await page.screenshot({
   path: `${outputDir}/smiles-probe.png`,
@@ -85,7 +138,9 @@ const result = {
   validation: {
     automatedPriceAlertEnabled: false,
     reason:
-      "Uma execução real precisa confirmar preço por passageiro, tarifa Clube e quatro assentos antes de ativar alertas.",
+      status === "results_page_loaded"
+        ? "As tarifas ainda precisam ser validadas antes dos alertas."
+        : "A página de resultados não entregou tarifas utilizáveis.",
   },
 };
 
@@ -93,14 +148,13 @@ await writeFile(
   `${outputDir}/smiles-probe.json`,
   JSON.stringify(result, null, 2),
 );
-console.log(
-  JSON.stringify({
-    status,
-    title: result.title,
-    candidateResponses: candidateResponses.length,
-  }),
-);
+
+console.log(JSON.stringify({
+  status,
+  finalUrl: result.finalUrl,
+  candidateResponses: candidateResponses.length,
+}));
 
 await browser.close();
 
-if (status === "navigation_failed") process.exitCode = 1;
+if (status !== "results_page_loaded") process.exitCode = 1;
