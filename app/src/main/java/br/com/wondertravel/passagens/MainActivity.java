@@ -21,7 +21,12 @@ import android.widget.TextView;
 import org.json.JSONTokener;
 
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,48 +35,29 @@ public final class MainActivity extends Activity {
     private static final String CHANNEL_ID = "price_alerts";
     private static final String SMILES_HOME =
             "https://www.smiles.com.br/portal/passagens";
-
-    private static final String TEST_SEARCH =
-            "https://www.smiles.com.br/mfe/emissao-passagem/"
-            + "?adults=2"
-            + "&cabin=ECONOMIC"
-            + "&children=2"
-            + "&departureDate=1791514800000"
-            + "&infants=0"
-            + "&isElegible=false"
-            + "&isFlexibleDateChecked=false"
-            + "&returnDate=1792249200000"
-            + "&searchType=g3"
-            + "&segments=1"
-            + "&tripType=1"
-            + "&originAirport=GRU"
-            + "&originCity="
-            + "&originCountry="
-            + "&originAirportIsAny=false"
-            + "&destinationAirport=BPS"
-            + "&destinCity="
-            + "&destinCountry="
-            + "&destinAirportIsAny=false"
-            + "&novo-resultado-voos=true";
-
-    private static final Pattern MILES_PATTERN =
-            Pattern.compile("(\\d{1,3}(?:\\.\\d{3})+)\\s*milhas", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DATE_PRICE_PATTERN = Pattern.compile(
+            "(?i)(\\d{1,2})\\s+out\\s+(\\d{1,3}(?:\\.\\d{3})+)\\s+milhas"
+    );
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final List<SearchTask> tasks = Arrays.asList(
+            new SearchTask("GRU", "BPS", "GRU → BPS",
+                    "1791601200000", "1792206000000", 9, 10, 11),
+            new SearchTask("CGH", "BPS", "CGH → BPS",
+                    "1791601200000", "1792206000000", 9, 10, 11),
+            new SearchTask("BPS", "GRU", "BPS → GRU",
+                    "1792206000000", "1792292400000", 17, 18),
+            new SearchTask("BPS", "CGH", "BPS → CGH",
+                    "1792206000000", "1792292400000", 17, 18)
+    );
+    private final Map<String, PriceResult> results = new LinkedHashMap<>();
+    private final List<String> notifiedOffers = new ArrayList<>();
+
     private WebView webView;
     private TextView status;
-    private Integer lastNotifiedPrice;
-
-    private final Runnable priceReader = new Runnable() {
-        @Override
-        public void run() {
-            if (webView != null && webView.getUrl() != null
-                    && webView.getUrl().contains("/mfe/emissao-passagem")) {
-                readVisiblePrices();
-            }
-            handler.postDelayed(this, 5_000);
-        }
-    };
+    private Button scanButton;
+    private int currentTaskIndex = -1;
+    private boolean scanning;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,25 +66,66 @@ public final class MainActivity extends Activity {
 
         status = findViewById(R.id.status);
         webView = findViewById(R.id.webView);
-        Button testSearch = findViewById(R.id.testSearch);
+        scanButton = findViewById(R.id.testSearch);
 
         createNotificationChannel();
         requestNotificationPermission();
         configureWebView();
 
-        testSearch.setOnClickListener(view -> {
-            status.setText("Abrindo GRU → BPS para 2 adultos e 2 crianças...");
-            lastNotifiedPrice = null;
-            webView.loadUrl(TEST_SEARCH);
-        });
+        scanButton.setOnClickListener(view -> startFullScan());
 
         if (savedInstanceState == null) {
             webView.loadUrl(SMILES_HOME);
         } else {
             webView.restoreState(savedInstanceState);
         }
+    }
 
-        handler.post(priceReader);
+    private void startFullScan() {
+        if (scanning) {
+            return;
+        }
+        scanning = true;
+        results.clear();
+        currentTaskIndex = 0;
+        scanButton.setEnabled(false);
+        loadCurrentTask();
+    }
+
+    private void loadCurrentTask() {
+        if (currentTaskIndex >= tasks.size()) {
+            finishScan();
+            return;
+        }
+
+        SearchTask task = tasks.get(currentTaskIndex);
+        status.setText("Verificando " + (currentTaskIndex + 1) + "/"
+                + tasks.size() + ": " + task.label + "...");
+        webView.loadUrl(buildSearchUrl(task));
+    }
+
+    private String buildSearchUrl(SearchTask task) {
+        return "https://www.smiles.com.br/mfe/emissao-passagem/"
+                + "?adults=2"
+                + "&cabin=ECONOMIC"
+                + "&children=2"
+                + "&departureDate=" + task.departureTimestamp
+                + "&infants=0"
+                + "&isElegible=false"
+                + "&isFlexibleDateChecked=false"
+                + "&returnDate=" + task.returnTimestamp
+                + "&searchType=g3"
+                + "&segments=1"
+                + "&tripType=1"
+                + "&originAirport=" + task.from
+                + "&originCity="
+                + "&originCountry="
+                + "&originAirportIsAny=false"
+                + "&destinationAirport=" + task.to
+                + "&destinCity="
+                + "&destinCountry="
+                + "&destinAirportIsAny=false"
+                + "&novo-resultado-voos=true";
     }
 
     private void configureWebView() {
@@ -116,75 +143,147 @@ public final class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                status.setText("Carregando...");
+                if (!scanning) {
+                    status.setText("Carregando...");
+                }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (url.contains("/mfe/emissao-passagem")) {
-                    status.setText("Procurando valores em milhas...");
-                    handler.postDelayed(() -> readVisiblePrices(), 3_000);
-                } else {
-                    status.setText("Smiles carregada. Toque em “Testar GRU → BPS”.");
+                if (scanning && url.contains("/mfe/emissao-passagem")) {
+                    handler.postDelayed(() -> inspectCurrentTask(0), 5_000);
+                } else if (!scanning) {
+                    status.setText("Smiles carregada. Toque em “Verificar agora”.");
                 }
             }
         });
     }
 
-    private void readVisiblePrices() {
+    private void inspectCurrentTask(int attempt) {
+        if (!scanning || currentTaskIndex < 0
+                || currentTaskIndex >= tasks.size()) {
+            return;
+        }
+
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
-                    try {
-                        Object decoded = new JSONTokener(encoded).nextValue();
-                        if (!(decoded instanceof String)) {
-                            return;
-                        }
-                        updateLowestPrice((String) decoded);
-                    } catch (Exception ignored) {
-                        status.setText("Não foi possível ler as tarifas desta tela.");
+                    String pageText = decodeJavascriptString(encoded);
+                    if (pageText == null) {
+                        retryOrAdvance(attempt);
+                        return;
+                    }
+
+                    int matches = collectPrices(tasks.get(currentTaskIndex), pageText);
+                    boolean stillLoading =
+                            pageText.contains("Aguarde enquanto buscamos");
+
+                    if (matches > 0 && !stillLoading) {
+                        advanceTask();
+                    } else {
+                        retryOrAdvance(attempt);
                     }
                 }
         );
     }
 
-    private void updateLowestPrice(String pageText) {
-        Matcher matcher = MILES_PATTERN.matcher(pageText);
-        int lowest = Integer.MAX_VALUE;
+    private String decodeJavascriptString(String encoded) {
+        try {
+            Object decoded = new JSONTokener(encoded).nextValue();
+            return decoded instanceof String ? (String) decoded : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private int collectPrices(SearchTask task, String pageText) {
+        Matcher matcher = DATE_PRICE_PATTERN.matcher(pageText);
+        int matches = 0;
 
         while (matcher.find()) {
+            int day;
+            int miles;
             try {
-                int miles = Integer.parseInt(matcher.group(1).replace(".", ""));
-                if (miles < lowest) {
-                    lowest = miles;
-                }
+                day = Integer.parseInt(matcher.group(1));
+                miles = Integer.parseInt(matcher.group(2).replace(".", ""));
             } catch (NumberFormatException ignored) {
-                // Ignora textos que não representam uma quantidade válida de milhas.
+                continue;
             }
+
+            if (!task.acceptsDay(day)) {
+                continue;
+            }
+
+            String key = task.label + "|" + day;
+            PriceResult existing = results.get(key);
+            if (existing == null || miles < existing.miles) {
+                results.put(key, new PriceResult(task.label, day, miles));
+            }
+            matches++;
         }
 
-        if (lowest == Integer.MAX_VALUE) {
-            if (!pageText.contains("Aguarde enquanto buscamos")) {
-                status.setText("Nenhum valor em milhas foi identificado nesta tela.");
-            }
+        return matches;
+    }
+
+    private void retryOrAdvance(int attempt) {
+        if (attempt >= 19) {
+            advanceTask();
+            return;
+        }
+        handler.postDelayed(() -> inspectCurrentTask(attempt + 1), 3_000);
+    }
+
+    private void advanceTask() {
+        currentTaskIndex++;
+        handler.postDelayed(this::loadCurrentTask, 1_500);
+    }
+
+    private void finishScan() {
+        scanning = false;
+        scanButton.setEnabled(true);
+        currentTaskIndex = -1;
+
+        if (results.isEmpty()) {
+            status.setText("A varredura terminou, mas nenhuma tarifa foi lida.");
             return;
         }
 
-        String formatted = NumberFormat.getIntegerInstance(
-                new Locale("pt", "BR")
-        ).format(lowest);
+        PriceResult lowest = null;
+        StringBuilder summary = new StringBuilder("Varredura concluída.\n");
 
-        if (lowest < TARGET_MILES) {
-            status.setText("Oportunidade: " + formatted
-                    + " milhas por viajante — abaixo de 31.000!");
-            if (lastNotifiedPrice == null || lowest < lastNotifiedPrice) {
-                showPriceNotification(lowest, formatted);
-                lastNotifiedPrice = lowest;
+        for (PriceResult result : results.values()) {
+            summary.append(result.route)
+                    .append(" | ")
+                    .append(String.format(Locale.getDefault(), "%02d/10", result.day))
+                    .append(": ")
+                    .append(formatMiles(result.miles))
+                    .append(" milhas\n");
+
+            if (lowest == null || result.miles < lowest.miles) {
+                lowest = result;
             }
-        } else {
-            status.setText("Menor tarifa visível: " + formatted
-                    + " milhas por viajante — acima de 31.000.");
+
+            if (result.miles < TARGET_MILES) {
+                notifyOffer(result);
+            }
         }
+
+        if (lowest != null) {
+            summary.append("Menor valor: ")
+                    .append(formatMiles(lowest.miles))
+                    .append(" milhas — ")
+                    .append(lowest.miles < TARGET_MILES
+                            ? "OPORTUNIDADE!"
+                            : "acima de 31.000.");
+        }
+
+        status.setText(summary.toString().trim());
+    }
+
+    private String formatMiles(int miles) {
+        return NumberFormat.getIntegerInstance(
+                new Locale("pt", "BR")
+        ).format(miles);
     }
 
     private void createNotificationChannel() {
@@ -211,25 +310,34 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void showPriceNotification(int price, String formatted) {
+    private void notifyOffer(PriceResult result) {
+        String offerKey = result.route + "|" + result.day + "|" + result.miles;
+        if (notifiedOffers.contains(offerKey)) {
+            return;
+        }
+        notifiedOffers.add(offerKey);
+
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }
 
+        String date = String.format(
+                Locale.getDefault(), "%02d/10", result.day
+        );
         android.app.Notification notification =
                 new android.app.Notification.Builder(this, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.ic_dialog_info)
                         .setContentTitle("Passagem abaixo de 31 mil")
-                        .setContentText("Encontramos " + formatted
-                                + " milhas por viajante.")
+                        .setContentText(result.route + " em " + date + ": "
+                                + formatMiles(result.miles) + " milhas.")
                         .setAutoCancel(true)
                         .build();
 
         NotificationManager manager =
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        manager.notify(price, notification);
+        manager.notify(offerKey.hashCode(), notification);
     }
 
     @Override
@@ -255,5 +363,51 @@ public final class MainActivity extends Activity {
             webView.destroy();
         }
         super.onDestroy();
+    }
+
+    private static final class SearchTask {
+        final String from;
+        final String to;
+        final String label;
+        final String departureTimestamp;
+        final String returnTimestamp;
+        final int[] acceptedDays;
+
+        SearchTask(
+                String from,
+                String to,
+                String label,
+                String departureTimestamp,
+                String returnTimestamp,
+                int... acceptedDays
+        ) {
+            this.from = from;
+            this.to = to;
+            this.label = label;
+            this.departureTimestamp = departureTimestamp;
+            this.returnTimestamp = returnTimestamp;
+            this.acceptedDays = acceptedDays;
+        }
+
+        boolean acceptsDay(int day) {
+            for (int acceptedDay : acceptedDays) {
+                if (day == acceptedDay) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static final class PriceResult {
+        final String route;
+        final int day;
+        final int miles;
+
+        PriceResult(String route, int day, int miles) {
+            this.route = route;
+            this.day = day;
+            this.miles = miles;
+        }
     }
 }
