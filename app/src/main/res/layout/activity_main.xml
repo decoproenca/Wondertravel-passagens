@@ -3,221 +3,251 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F4F4F4">
+    android:background="#100D18">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#FF6B00"
-        android:paddingHorizontal="20dp"
-        android:paddingVertical="18dp"
-        android:text="WonderTravel Passagens"
-        android:textColor="#FFFFFF"
-        android:textSize="21sp"
-        android:textStyle="bold" />
+        android:background="@drawable/bg_header"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="✈  WonderTravel"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Seu radar pessoal de passagens"
+            android:textColor="#BFB4D5"
+            android:textSize="13sp" />
+    </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:clipToPadding="false"
         android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="18dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Configuração da busca"
-                android:textColor="#222222"
-                android:textSize="19sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="Origem"
-                android:textColor="#555555"
-                android:textStyle="bold" />
-
-            <Spinner
-                android:id="@+id/originMode"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="5dp"
-                android:background="#FFFFFF"
-                android:paddingHorizontal="12dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
-                android:text="Destino (código do aeroporto)"
-                android:textColor="#555555"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/destination"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="5dp"
-                android:background="#FFFFFF"
-                android:hint="Ex.: BPS"
-                android:inputType="textCapCharacters"
-                android:maxLength="3"
-                android:paddingHorizontal="14dp"
-                android:textColor="#222222" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
-                android:text="Datas de ida"
-                android:textColor="#555555"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/outboundDates"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="5dp"
-                android:background="#FFFFFF"
-                android:hint="dd/mm/aaaa, dd/mm/aaaa"
-                android:inputType="text"
-                android:paddingHorizontal="14dp"
-                android:textColor="#222222" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
-                android:text="Datas de volta"
-                android:textColor="#555555"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/returnDates"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="5dp"
-                android:background="#FFFFFF"
-                android:hint="dd/mm/aaaa, dd/mm/aaaa"
-                android:inputType="text"
-                android:paddingHorizontal="14dp"
-                android:textColor="#222222" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="Use dd/mm/aaaa e separe várias datas com vírgulas."
-                android:textColor="#777777"
-                android:textSize="12sp" />
+            android:paddingHorizontal="16dp"
+            android:paddingTop="18dp"
+            android:paddingBottom="28dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
-                android:orientation="horizontal">
+                android:background="@drawable/bg_card"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="CONFIGURAÇÃO DA BUSCA"
+                    android:textColor="#A98AF8"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Origem"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/originMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:paddingHorizontal="12dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Destino"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/destination"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Código do aeroporto, ex.: BPS"
+                    android:inputType="textCapCharacters"
+                    android:maxLength="3"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Datas de ida"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/outboundDates"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="dd/mm/aaaa, dd/mm/aaaa"
+                    android:inputType="text"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Datas de volta"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/returnDates"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="dd/mm/aaaa, dd/mm/aaaa"
+                    android:inputType="text"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="7dp"
+                    android:text="Separe várias datas com vírgulas."
+                    android:textColor="#8E849E"
+                    android:textSize="11sp" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:layout_marginTop="14dp"
+                    android:orientation="horizontal">
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:text="Adultos"
-                        android:textColor="#555555"
-                        android:textStyle="bold" />
+                        android:layout_weight="1"
+                        android:orientation="vertical">
 
-                    <EditText
-                        android:id="@+id/adults"
-                        android:layout_width="match_parent"
-                        android:layout_height="52dp"
-                        android:layout_marginTop="5dp"
-                        android:background="#FFFFFF"
-                        android:inputType="number"
-                        android:paddingHorizontal="14dp"
-                        android:textColor="#222222" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Adultos"
+                            android:textColor="#D8D1E5"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/adults"
+                            android:layout_width="match_parent"
+                            android:layout_height="52dp"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_input"
+                            android:inputType="number"
+                            android:paddingHorizontal="14dp"
+                            android:textColor="#FFFFFF" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Crianças (2–11)"
+                            android:textColor="#D8D1E5"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/children"
+                            android:layout_width="match_parent"
+                            android:layout_height="52dp"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_input"
+                            android:inputType="number"
+                            android:paddingHorizontal="14dp"
+                            android:textColor="#FFFFFF" />
+                    </LinearLayout>
                 </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="0dp"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:layout_marginTop="14dp"
+                    android:text="Alerta abaixo de (milhas por viajante)"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Crianças (2–11 anos)"
-                        android:textColor="#555555"
-                        android:textStyle="bold" />
+                <EditText
+                    android:id="@+id/targetMiles"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Ex.: 31000"
+                    android:inputType="number"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F" />
 
-                    <EditText
-                        android:id="@+id/children"
-                        android:layout_width="match_parent"
-                        android:layout_height="52dp"
-                        android:layout_marginTop="5dp"
-                        android:background="#FFFFFF"
-                        android:inputType="number"
-                        android:paddingHorizontal="14dp"
-                        android:textColor="#222222" />
-                </LinearLayout>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Intervalo das verificações (minutos)"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/intervalMinutes"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Mínimo: 15"
+                    android:inputType="number"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F" />
             </LinearLayout>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
-                android:text="Alertar abaixo de (milhas por viajante)"
-                android:textColor="#555555"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/targetMiles"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="5dp"
-                android:background="#FFFFFF"
-                android:hint="Ex.: 31000"
-                android:inputType="number"
-                android:paddingHorizontal="14dp"
-                android:textColor="#222222" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
-                android:text="Intervalo entre verificações (minutos)"
-                android:textColor="#555555"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/intervalMinutes"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="5dp"
-                android:background="#FFFFFF"
-                android:hint="Mínimo: 15"
-                android:inputType="number"
-                android:paddingHorizontal="14dp"
-                android:textColor="#222222" />
 
             <Button
                 android:id="@+id/saveConfig"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="18dp"
-                android:backgroundTint="#FF6B00"
+                android:layout_height="54dp"
+                android:layout_marginTop="14dp"
+                android:backgroundTint="#7B4DFF"
                 android:text="Salvar configuração"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
@@ -226,12 +256,12 @@
             <Button
                 android:id="@+id/testSearch"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="54dp"
                 android:layout_marginTop="6dp"
-                android:backgroundTint="#E2E2E2"
+                android:backgroundTint="#2B243D"
                 android:text="Verificar agora"
                 android:textAllCaps="false"
-                android:textColor="#222222" />
+                android:textColor="#E8E1F3" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -242,9 +272,9 @@
                 <Button
                     android:id="@+id/startMonitor"
                     android:layout_width="0dp"
-                    android:layout_height="52dp"
+                    android:layout_height="54dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2E7D32"
+                    android:backgroundTint="#FF6B35"
                     android:text="Ativar monitor"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFF"
@@ -253,22 +283,22 @@
                 <Button
                     android:id="@+id/stopMonitor"
                     android:layout_width="0dp"
-                    android:layout_height="52dp"
+                    android:layout_height="54dp"
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#D8D8D8"
+                    android:backgroundTint="#332B45"
                     android:text="Parar"
                     android:textAllCaps="false"
-                    android:textColor="#333333" />
+                    android:textColor="#CFC6DC" />
             </LinearLayout>
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:text="Últimos resultados"
-                android:textColor="#222222"
-                android:textSize="18sp"
+                android:layout_marginTop="22dp"
+                android:text="ÚLTIMOS RESULTADOS"
+                android:textColor="#A98AF8"
+                android:textSize="13sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -276,13 +306,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:layout_marginBottom="12dp"
-                android:background="#FFFFFF"
-                android:lineSpacingExtra="3dp"
+                android:background="@drawable/bg_results"
+                android:lineSpacingExtra="4dp"
+                android:minHeight="90dp"
                 android:padding="16dp"
+                android:text="Configure sua busca para começar."
+                android:textColor="#F2EDF8"
                 android:textIsSelectable="true"
-                android:text="Configure sua busca."
-                android:textColor="#333333"
                 android:textSize="14sp" />
         </LinearLayout>
     </ScrollView>
