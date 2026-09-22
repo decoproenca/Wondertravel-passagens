@@ -86,12 +86,16 @@ public final class SearchConfig {
 
         List<Task> tasks = new ArrayList<>();
         for (String origin : origins) {
-            tasks.add(new Task(origin, destination, origin + " → " + destination,
-                    outbound, returns.get(returns.size() - 1)));
+            for (LocalDate date : outbound) {
+                tasks.add(new Task(origin, destination, origin + " → " + destination,
+                        Arrays.asList(date), returns.get(returns.size() - 1)));
+            }
         }
         for (String origin : origins) {
-            tasks.add(new Task(destination, origin, destination + " → " + origin,
-                    returns, returns.get(returns.size() - 1).plusDays(1)));
+            for (LocalDate date : returns) {
+                tasks.add(new Task(destination, origin, destination + " → " + origin,
+                        Arrays.asList(date), date.plusDays(1)));
+            }
         }
         return tasks;
     }
