@@ -35,13 +35,8 @@ public final class MonitorService extends Service {
     private static final String STATUS_CHANNEL = "monitor_status_visible_v2";
     private static final String ALERT_CHANNEL = "price_alerts";
     private static final int STATUS_NOTIFICATION_ID = 7001;
-    private static final Pattern PRICE_PATTERN = Pattern.compile(
-            "(?i)(\\d{1,2})\\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)"
-                    + "\\s+(\\d{1,3}(?:\\.\\d{3})+)\\s+milhas"
-    );
-
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Map<String, PriceResult> results = new LinkedHashMap<>();
+    private final Map<String, FlightParser.Result> results = new LinkedHashMap<>();
     private WebView webView;
     private SearchConfig config;
     private List<SearchConfig.Task> tasks;
@@ -138,14 +133,27 @@ public final class MonitorService extends Service {
                 encoded -> {
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
-                    if (text != null) collectPrices(task, text);
-                    int foundDates = countFoundDates(task);
-                    boolean complete = foundDates >= task.dates.size();
+                    FlightParser.Result parsed = FlightParser.parse(text, task);
+                    String key = task.label + "|" + task.dates.get(0);
+                    if (parsed != null) {
+                        FlightParser.Result old = results.get(key);
+                        if (old == null || parsed.hasFlightDetails()
+                                || parsed.miles < old.miles) {
+                            results.put(key, parsed);
+                        }
+                    }
+                    FlightParser.Result saved = results.get(key);
                     boolean loading = text != null
                             && text.contains("Aguarde enquanto buscamos");
-                    if (complete && !loading) advance();
-                    else if (attempt >= 29) advance();
-                    else handler.postDelayed(() -> inspect(attempt + 1), 3000);
+                    if (saved != null && saved.hasFlightDetails() && !loading) {
+                        advance();
+                    } else if (saved != null && attempt >= 8 && !loading) {
+                        advance();
+                    } else if (attempt >= 29) {
+                        advance();
+                    } else {
+                        handler.postDelayed(() -> inspect(attempt + 1), 3000);
+                    }
                 });
     }
 
@@ -156,48 +164,6 @@ public final class MonitorService extends Service {
         } catch (Exception error) {
             return null;
         }
-    }
-
-    private int collectPrices(SearchConfig.Task task, String text) {
-        Matcher matcher = PRICE_PATTERN.matcher(text);
-        int matches = 0;
-        while (matcher.find()) {
-            try {
-                int day = Integer.parseInt(matcher.group(1));
-                int month = monthNumber(matcher.group(2));
-                int miles = Integer.parseInt(matcher.group(3).replace(".", ""));
-                if (!task.accepts(day, month)) continue;
-                for (LocalDate date : task.dates) {
-                    if (date.getDayOfMonth() == day && date.getMonthValue() == month) {
-                        String key = task.label + "|" + date;
-                        PriceResult old = results.get(key);
-                        if (old == null || miles < old.miles) {
-                            results.put(key, new PriceResult(task.label, date, miles));
-                        }
-                        matches++;
-                        break;
-                    }
-                }
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return matches;
-    }
-
-    private int countFoundDates(SearchConfig.Task task) {
-        int count = 0;
-        for (LocalDate date : task.dates) {
-            if (results.containsKey(task.label + "|" + date)) count++;
-        }
-        return count;
-    }
-
-    private int monthNumber(String value) {
-        String[] months = {"jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"};
-        for (int i = 0; i < months.length; i++) {
-            if (months[i].equals(value.toLowerCase(Locale.ROOT))) return i + 1;
-        }
-        return 0;
     }
 
     private void advance() {
@@ -212,16 +178,26 @@ public final class MonitorService extends Service {
                 new Locale("pt", "BR")).format(new Date());
         StringBuilder summary = new StringBuilder("Varredura automática em ")
                 .append(checkedAt).append(".\n");
-        PriceResult lowest = null;
+        FlightParser.Result lowest = null;
 
         for (SearchConfig.Task task : tasks) {
             for (LocalDate date : task.dates) {
                 String key = task.label + "|" + date;
-                PriceResult result = results.get(key);
-                summary.append(task.label).append(" | ").append(task.displayDate(date)).append(": ");
-                if (result == null) summary.append("não foi possível ler\n");
-                else {
-                    summary.append(format(result.miles)).append(" milhas\n");
+                FlightParser.Result result = results.get(key);
+                summary.append("\n").append(task.label).append("\n")
+                        .append(task.displayDate(date));
+                if (result == null) {
+                    summary.append(" • não foi possível ler\n");
+                } else {
+                    if (result.hasFlightDetails()) {
+                        summary.append(" • ").append(result.departureTime)
+                                .append(" → ").append(result.arrivalTime)
+                                .append(" • ").append(result.stops);
+                    } else {
+                        summary.append(" • horários não identificados");
+                    }
+                    summary.append("\n").append(format(result.miles))
+                            .append(" milhas por viajante\n");
                     if (lowest == null || result.miles < lowest.miles) lowest = result;
                     if (result.miles < config.targetMiles) showOffer(result);
                 }
@@ -249,7 +225,7 @@ public final class MonitorService extends Service {
 
     private final Runnable nextScan = this::startScan;
 
-    private void showOffer(PriceResult result) {
+    private void showOffer(FlightParser.Result result) {
         String alertKey = "alert_" + (result.route + "|" + result.date).hashCode();
         int previous = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
                 .getInt(alertKey, -1);
@@ -260,8 +236,11 @@ public final class MonitorService extends Service {
         Notification notification = new Notification.Builder(this, ALERT_CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("Passagem abaixo de " + format(config.targetMiles))
-                .setContentText(result.route + " em " + result.displayDate() + ": "
-                        + format(result.miles) + " milhas por viajante.")
+                .setContentText(result.route + " • " + result.displayDate()
+                        + (result.hasFlightDetails()
+                        ? " • " + result.departureTime + " → " + result.arrivalTime
+                        + " • " + result.stops : "")
+                        + " • " + format(result.miles) + " milhas.")
                 .setAutoCancel(true)
                 .build();
         ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
@@ -330,20 +309,4 @@ public final class MonitorService extends Service {
         return null;
     }
 
-    private static final class PriceResult {
-        final String route;
-        final LocalDate date;
-        final int miles;
-
-        PriceResult(String route, LocalDate date, int miles) {
-            this.route = route;
-            this.date = date;
-            this.miles = miles;
-        }
-
-        String displayDate() {
-            return String.format(Locale.getDefault(), "%02d/%02d/%04d",
-                    date.getDayOfMonth(), date.getMonthValue(), date.getYear());
-        }
-    }
 }
