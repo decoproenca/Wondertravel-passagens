@@ -38,13 +38,8 @@ import java.util.regex.Pattern;
 public final class MainActivity extends Activity {
     private static final String ALERT_CHANNEL = "price_alerts";
     private static final String SMILES_HOME = "https://www.smiles.com.br/portal/passagens";
-    private static final Pattern PRICE_PATTERN = Pattern.compile(
-            "(?i)(\\d{1,2})\\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)"
-                    + "\\s+(\\d{1,3}(?:\\.\\d{3})+)\\s+milhas"
-    );
-
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Map<String, PriceResult> results = new LinkedHashMap<>();
+    private final Map<String, FlightParser.Result> results = new LinkedHashMap<>();
 
     private Spinner originMode;
     private EditText destination;
@@ -244,14 +239,27 @@ public final class MainActivity extends Activity {
                 encoded -> {
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
-                    if (text != null) collectPrices(task, text);
-                    int foundDates = countFoundDates(task);
-                    boolean complete = foundDates >= task.dates.size();
+                    FlightParser.Result parsed = FlightParser.parse(text, task);
+                    String key = task.label + "|" + task.dates.get(0);
+                    if (parsed != null) {
+                        FlightParser.Result old = results.get(key);
+                        if (old == null || parsed.hasFlightDetails()
+                                || parsed.miles < old.miles) {
+                            results.put(key, parsed);
+                        }
+                    }
+                    FlightParser.Result saved = results.get(key);
                     boolean loading = text != null
                             && text.contains("Aguarde enquanto buscamos");
-                    if (complete && !loading) advance();
-                    else if (attempt >= 29) advance();
-                    else handler.postDelayed(() -> inspect(attempt + 1), 3000);
+                    if (saved != null && saved.hasFlightDetails() && !loading) {
+                        advance();
+                    } else if (saved != null && attempt >= 8 && !loading) {
+                        advance();
+                    } else if (attempt >= 29) {
+                        advance();
+                    } else {
+                        handler.postDelayed(() -> inspect(attempt + 1), 3000);
+                    }
                 });
     }
 
@@ -262,45 +270,6 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             return null;
         }
-    }
-
-    private int collectPrices(SearchConfig.Task task, String text) {
-        Matcher matcher = PRICE_PATTERN.matcher(text);
-        int matches = 0;
-        while (matcher.find()) {
-            int day = Integer.parseInt(matcher.group(1));
-            int month = monthNumber(matcher.group(2));
-            int miles = Integer.parseInt(matcher.group(3).replace(".", ""));
-            if (!task.accepts(day, month)) continue;
-            for (LocalDate date : task.dates) {
-                if (date.getDayOfMonth() == day && date.getMonthValue() == month) {
-                    String key = task.label + "|" + date;
-                    PriceResult old = results.get(key);
-                    if (old == null || miles < old.miles) {
-                        results.put(key, new PriceResult(task.label, date, miles));
-                    }
-                    matches++;
-                    break;
-                }
-            }
-        }
-        return matches;
-    }
-
-    private int countFoundDates(SearchConfig.Task task) {
-        int count = 0;
-        for (LocalDate date : task.dates) {
-            if (results.containsKey(task.label + "|" + date)) count++;
-        }
-        return count;
-    }
-
-    private int monthNumber(String value) {
-        String[] months = {"jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"};
-        for (int i = 0; i < months.length; i++) {
-            if (months[i].equals(value.toLowerCase(Locale.ROOT))) return i + 1;
-        }
-        return 0;
     }
 
     private void advance() {
@@ -316,15 +285,25 @@ public final class MainActivity extends Activity {
                 new Locale("pt", "BR")).format(new Date());
         StringBuilder summary = new StringBuilder("Varredura concluída em ")
                 .append(checkedAt).append(".\n");
-        PriceResult lowest = null;
+        FlightParser.Result lowest = null;
 
         for (SearchConfig.Task task : tasks) {
             for (LocalDate date : task.dates) {
-                PriceResult result = results.get(task.label + "|" + date);
-                summary.append(task.label).append(" | ").append(task.displayDate(date)).append(": ");
-                if (result == null) summary.append("não foi possível ler\n");
-                else {
-                    summary.append(format(result.miles)).append(" milhas\n");
+                FlightParser.Result result = results.get(task.label + "|" + date);
+                summary.append("\n").append(task.label).append("\n")
+                        .append(task.displayDate(date));
+                if (result == null) {
+                    summary.append(" • não foi possível ler\n");
+                } else {
+                    if (result.hasFlightDetails()) {
+                        summary.append(" • ").append(result.departureTime)
+                                .append(" → ").append(result.arrivalTime)
+                                .append(" • ").append(result.stops);
+                    } else {
+                        summary.append(" • horários não identificados");
+                    }
+                    summary.append("\n").append(format(result.miles))
+                            .append(" milhas por viajante\n");
                     if (lowest == null || result.miles < lowest.miles) lowest = result;
                 }
             }
@@ -390,15 +369,4 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private static final class PriceResult {
-        final String route;
-        final LocalDate date;
-        final int miles;
-
-        PriceResult(String route, LocalDate date, int miles) {
-            this.route = route;
-            this.date = date;
-            this.miles = miles;
-        }
-    }
 }
