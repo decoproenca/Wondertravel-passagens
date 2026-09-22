@@ -263,13 +263,24 @@
             </LinearLayout>
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:text="Últimos resultados"
+                android:textColor="#222222"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
                 android:id="@+id/status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="8dp"
                 android:layout_marginBottom="12dp"
                 android:background="#FFFFFF"
-                android:padding="14dp"
+                android:lineSpacingExtra="3dp"
+                android:padding="16dp"
+                android:textIsSelectable="true"
                 android:text="Configure sua busca."
                 android:textColor="#333333"
                 android:textSize="14sp" />
