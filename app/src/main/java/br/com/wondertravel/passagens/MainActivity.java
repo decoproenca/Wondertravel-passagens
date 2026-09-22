@@ -190,7 +190,8 @@ public final class MainActivity extends Activity {
         }
         SearchConfig.Task task = tasks.get(taskIndex);
         status.setText("Verificando " + (taskIndex + 1) + "/" + tasks.size()
-                + ": " + task.label + "...");
+                + ": " + task.label + " • "
+                + task.displayDate(task.dates.get(0)) + "...");
         webView.loadUrl(buildUrl(task));
     }
 
@@ -224,7 +225,7 @@ public final class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (scanning && url.contains("/mfe/emissao-passagem")) {
-                    handler.postDelayed(() -> inspect(0), 7000);
+                    handler.postDelayed(() -> inspect(0), 5000);
                 } else if (!scanning) {
                     restoreLastScan();
                 }
@@ -253,12 +254,12 @@ public final class MainActivity extends Activity {
                             && text.contains("Aguarde enquanto buscamos");
                     if (saved != null && saved.hasFlightDetails() && !loading) {
                         advance();
-                    } else if (saved != null && attempt >= 8 && !loading) {
+                    } else if (saved != null && attempt >= 3 && !loading) {
                         advance();
-                    } else if (attempt >= 29) {
+                    } else if (attempt >= 8) {
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(attempt + 1), 3000);
+                        handler.postDelayed(() -> inspect(attempt + 1), 2000);
                     }
                 });
     }
