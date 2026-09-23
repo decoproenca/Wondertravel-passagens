@@ -60,6 +60,8 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        getWindow().setStatusBarColor(0xFF100D18);
+        getWindow().setNavigationBarColor(0xFF100D18);
         setContentView(R.layout.activity_main);
         bindViews();
         setupOriginSpinner();
@@ -115,8 +117,8 @@ public final class MainActivity extends Activity {
     private void setupOriginSpinner() {
         String[] values = {"São Paulo (GRU + CGH)", "GRU", "CGH"};
         ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, values);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                this, R.layout.spinner_item, values);
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
         originMode.setAdapter(adapter);
     }
 
