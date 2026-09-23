@@ -7,10 +7,13 @@ import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
+import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -18,6 +21,7 @@ import android.webkit.WebViewClient;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -50,6 +54,8 @@ public final class MainActivity extends Activity {
     private EditText targetMiles;
     private EditText intervalMinutes;
     private TextView status;
+    private TextView resultsTitle;
+    private LinearLayout resultsTable;
     private WebView webView;
     private Button scanButton;
     private SearchConfig config;
@@ -110,6 +116,8 @@ public final class MainActivity extends Activity {
         targetMiles = findViewById(R.id.targetMiles);
         intervalMinutes = findViewById(R.id.intervalMinutes);
         status = findViewById(R.id.status);
+        resultsTitle = findViewById(R.id.resultsTitle);
+        resultsTable = findViewById(R.id.resultsTable);
         webView = findViewById(R.id.webView);
         scanButton = findViewById(R.id.testSearch);
     }
@@ -319,7 +327,100 @@ public final class MainActivity extends Activity {
         String finalText = summary.toString().trim();
         getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
                 .putString("last_scan", finalText).apply();
-        status.setText(finalText);
+        showSavedResults(finalText);
+    }
+
+    private void showSavedResults(String saved) {
+        if (saved == null || saved.isEmpty()) {
+            resultsTitle.setVisibility(View.GONE);
+            resultsTable.setVisibility(View.GONE);
+            return;
+        }
+
+        String[] lines = saved.split("\\n");
+        String first = lines.length > 0 ? lines[0] : "Varredura concluída.";
+        String last = lines.length > 1 ? lines[lines.length - 1] : "";
+        status.setText(first + (last.startsWith("Menor valor:") ? "\n" + last : ""));
+
+        resultsTable.removeAllViews();
+        addResultRow(new String[]{"ROTA", "DATA", "HORÁRIO", "VOO", "MILHAS"}, true, false);
+
+        int rowIndex = 0;
+        for (int i = 0; i < lines.length; i++) {
+            String route = lines[i].trim();
+            if (!route.matches("[A-Z]{3} → [A-Z]{3}") || i + 1 >= lines.length) {
+                continue;
+            }
+
+            String detail = lines[++i].trim();
+            String[] parts = detail.split(" • ");
+            String date = parts.length > 0 ? parts[0] : "—";
+            String time = "—";
+            String type = "—";
+            String miles = "—";
+
+            if (detail.contains("não foi possível ler")) {
+                type = "Falha";
+            } else if (detail.contains("horários não identificados")) {
+                type = "Não lido";
+            } else {
+                if (parts.length > 1) time = parts[1];
+                if (parts.length > 2) type = parts[2];
+            }
+
+            if (i + 1 < lines.length && lines[i + 1].contains("milhas")) {
+                String priceLine = lines[++i].trim();
+                int end = priceLine.indexOf(" milhas");
+                miles = end > 0 ? priceLine.substring(0, end) : priceLine;
+            }
+
+            String compactRoute = route.replace(" → ", "\n");
+            String compactDate = date.length() == 10
+                    ? date.substring(0, 5) + "\n" + date.substring(6)
+                    : date;
+            String compactTime = time.replace("h", ":").replace(" → ", "\n");
+            addResultRow(
+                    new String[]{compactRoute, compactDate, compactTime, type, miles},
+                    false,
+                    rowIndex++ % 2 == 1
+            );
+        }
+
+        resultsTitle.setVisibility(View.VISIBLE);
+        resultsTable.setVisibility(View.VISIBLE);
+    }
+
+    private void addResultRow(String[] values, boolean header, boolean alternate) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(header ? 42 : 64));
+        row.setBackgroundResource(header
+                ? R.drawable.bg_table_header
+                : (alternate ? R.drawable.bg_table_row_alt : R.drawable.bg_table_row));
+
+        float[] weights = {0.85f, 1.05f, 1.15f, 1.05f, 1.15f};
+        for (int i = 0; i < values.length; i++) {
+            TextView cell = new TextView(this);
+            cell.setText(values[i]);
+            cell.setGravity(Gravity.CENTER);
+            cell.setPadding(dp(3), dp(7), dp(3), dp(7));
+            cell.setTextSize(header ? 9.5f : 11.5f);
+            cell.setTextColor(Color.parseColor(
+                    header ? "#BBA9E8" : (i == 4 ? "#FF8A5B" : "#F0EAF7")
+            ));
+            if (header || i == 4) {
+                cell.setTypeface(cell.getTypeface(), android.graphics.Typeface.BOLD);
+            }
+            row.addView(cell, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, weights[i]
+            ));
+        }
+        resultsTable.addView(row);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private String format(int value) {
@@ -329,8 +430,11 @@ public final class MainActivity extends Activity {
     private void restoreLastScan() {
         String saved = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
                 .getString("last_scan", "");
-        if (!saved.isEmpty()) status.setText("Último resultado salvo:\n" + saved);
-        else status.setText("Configuração pronta. Salve ou ative o monitor.");
+        if (!saved.isEmpty()) showSavedResults(saved);
+        else {
+            status.setText("Configuração pronta. Salve ou ative o monitor.");
+            showSavedResults("");
+        }
     }
 
     private void createNotificationChannel() {
