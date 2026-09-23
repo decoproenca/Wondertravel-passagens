@@ -31,6 +31,7 @@ import org.json.JSONTokener;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,6 +57,8 @@ public final class MainActivity extends Activity {
     private TextView status;
     private TextView resultsTitle;
     private LinearLayout resultsTable;
+    private TextView bestMatchTitle;
+    private LinearLayout bestMatchContainer;
     private WebView webView;
     private Button scanButton;
     private SearchConfig config;
@@ -118,6 +121,8 @@ public final class MainActivity extends Activity {
         status = findViewById(R.id.status);
         resultsTitle = findViewById(R.id.resultsTitle);
         resultsTable = findViewById(R.id.resultsTable);
+        bestMatchTitle = findViewById(R.id.bestMatchTitle);
+        bestMatchContainer = findViewById(R.id.bestMatchContainer);
         webView = findViewById(R.id.webView);
         scanButton = findViewById(R.id.testSearch);
     }
@@ -334,6 +339,8 @@ public final class MainActivity extends Activity {
         if (saved == null || saved.isEmpty()) {
             resultsTitle.setVisibility(View.GONE);
             resultsTable.setVisibility(View.GONE);
+            bestMatchTitle.setVisibility(View.GONE);
+            bestMatchContainer.setVisibility(View.GONE);
             return;
         }
 
@@ -343,9 +350,11 @@ public final class MainActivity extends Activity {
         status.setText(first + (last.startsWith("Menor valor:") ? "\n" + last : ""));
 
         resultsTable.removeAllViews();
-        addResultRow(new String[]{"ROTA", "DATA", "HORÁRIO", "VOO", "MILHAS"}, true, false);
+        bestMatchContainer.removeAllViews();
+        List<ResultRow> outbound = new ArrayList<>();
+        List<ResultRow> inbound = new ArrayList<>();
+        String configuredDestination = SearchConfig.load(this).destination.toUpperCase(Locale.ROOT);
 
-        int rowIndex = 0;
         for (int i = 0; i < lines.length; i++) {
             String route = lines[i].trim();
             if (!route.matches("[A-Z]{3} → [A-Z]{3}") || i + 1 >= lines.length) {
@@ -374,20 +383,125 @@ public final class MainActivity extends Activity {
                 miles = end > 0 ? priceLine.substring(0, end) : priceLine;
             }
 
-            String compactRoute = route.replace(" → ", "\n");
-            String compactDate = date.length() == 10
-                    ? date.substring(0, 5) + "\n" + date.substring(6)
-                    : date;
-            String compactTime = time.replace("h", ":").replace(" → ", "\n");
-            addResultRow(
-                    new String[]{compactRoute, compactDate, compactTime, type, miles},
-                    false,
-                    rowIndex++ % 2 == 1
-            );
+            ResultRow row = new ResultRow(route, date, time, type, miles, parseMiles(miles));
+            if (route.startsWith(configuredDestination + " →")) inbound.add(row);
+            else outbound.add(row);
         }
+
+        addResultSection("IDA", "São Paulo → " + configuredDestination, outbound);
+        addResultSection("VOLTA", configuredDestination + " → São Paulo", inbound);
+
+        ResultRow bestOutbound = cheapest(outbound);
+        ResultRow bestInbound = cheapest(inbound);
+        addBestMatch("IDA", bestOutbound);
+        addBestMatch("VOLTA", bestInbound);
 
         resultsTitle.setVisibility(View.VISIBLE);
         resultsTable.setVisibility(View.VISIBLE);
+        bestMatchTitle.setVisibility(View.VISIBLE);
+        bestMatchContainer.setVisibility(View.VISIBLE);
+    }
+
+    private void addResultSection(String title, String subtitle, List<ResultRow> rows) {
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
+        heading.setPadding(dp(12), dp(14), dp(12), dp(9));
+
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextColor(Color.parseColor(title.equals("IDA") ? "#FF8A5B" : "#A98AF8"));
+        name.setTextSize(14);
+        name.setTypeface(name.getTypeface(), android.graphics.Typeface.BOLD);
+        heading.addView(name);
+
+        TextView route = new TextView(this);
+        route.setText(subtitle);
+        route.setTextColor(Color.parseColor("#91879F"));
+        route.setTextSize(11);
+        heading.addView(route);
+        resultsTable.addView(heading);
+
+        addResultRow(new String[]{"ROTA", "DATA", "HORÁRIO", "VOO", "MILHAS"}, true, false);
+        if (rows.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("Nenhum resultado neste trecho.");
+            empty.setTextColor(Color.parseColor("#91879F"));
+            empty.setPadding(dp(12), dp(16), dp(12), dp(16));
+            resultsTable.addView(empty);
+            return;
+        }
+        for (int i = 0; i < rows.size(); i++) {
+            ResultRow row = rows.get(i);
+            addResultRow(new String[]{
+                    row.route.replace(" → ", "\n"),
+                    compactDate(row.date),
+                    row.time.replace("h", ":").replace(" → ", "\n"),
+                    row.type,
+                    row.milesText
+            }, false, i % 2 == 1);
+        }
+    }
+
+    private void addBestMatch(String direction, ResultRow row) {
+        TextView card = new TextView(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, bestMatchContainer.getChildCount() == 0 ? 0 : dp(9), 0, 0);
+        card.setLayoutParams(params);
+        card.setBackgroundResource(R.drawable.bg_best_match);
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        card.setTextColor(Color.parseColor("#F4EFFA"));
+        card.setTextSize(13);
+        if (row == null) {
+            card.setText(direction + "\nNenhuma tarifa identificada.");
+        } else {
+            String details = row.time.equals("—") ? row.type : row.time + " • " + row.type;
+            card.setText(direction + "  •  MELHOR TARIFA\n"
+                    + row.route + "  |  " + row.date + "\n"
+                    + details + "\n"
+                    + row.milesText + " milhas por viajante");
+        }
+        bestMatchContainer.addView(card);
+    }
+
+    private ResultRow cheapest(List<ResultRow> rows) {
+        ResultRow best = null;
+        for (ResultRow row : rows) {
+            if (row.milesValue < 0) continue;
+            if (best == null || row.milesValue < best.milesValue) best = row;
+        }
+        return best;
+    }
+
+    private int parseMiles(String value) {
+        try {
+            return Integer.parseInt(value.replaceAll("[^0-9]", ""));
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private String compactDate(String date) {
+        return date.length() == 10 ? date.substring(0, 5) + "\n" + date.substring(6) : date;
+    }
+
+    private static final class ResultRow {
+        final String route;
+        final String date;
+        final String time;
+        final String type;
+        final String milesText;
+        final int milesValue;
+
+        ResultRow(String route, String date, String time, String type,
+                  String milesText, int milesValue) {
+            this.route = route;
+            this.date = date;
+            this.time = time;
+            this.type = type;
+            this.milesText = milesText;
+            this.milesValue = milesValue;
+        }
     }
 
     private void addResultRow(String[] values, boolean header, boolean alternate) {
