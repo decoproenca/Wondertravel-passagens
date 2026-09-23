@@ -296,24 +296,41 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="22dp"
-                android:text="ÚLTIMOS RESULTADOS"
+                android:text="STATUS DO MONITOR"
                 android:textColor="#A98AF8"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="7dp"
                 android:background="@drawable/bg_results"
-                android:lineSpacingExtra="4dp"
-                android:minHeight="90dp"
-                android:padding="16dp"
+                android:minHeight="56dp"
+                android:padding="14dp"
                 android:text="Configure sua busca para começar."
-                android:textColor="#F2EDF8"
-                android:textIsSelectable="true"
-                android:textSize="14sp" />
+                android:textColor="#E9E2F3"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/resultsTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:text="ÚLTIMOS RESULTADOS"
+                android:textColor="#A98AF8"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/resultsTable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
 
