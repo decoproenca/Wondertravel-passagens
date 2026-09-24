@@ -71,8 +71,9 @@ public final class SearchConfig {
         if (returns.isEmpty()) throw new IllegalArgumentException("Informe ao menos uma data de volta.");
         validateDateRange(outbound, "ida");
         validateDateRange(returns, "volta");
-        if (!returns.get(0).isAfter(outbound.get(0))) {
-            throw new IllegalArgumentException("A volta precisa ser posterior à ida.");
+        if (!returns.get(0).isAfter(outbound.get(outbound.size() - 1))) {
+            throw new IllegalArgumentException(
+                    "A volta precisa começar depois do último dia da ida.");
         }
         if (destination.length() != 3) {
             throw new IllegalArgumentException("Selecione ou informe um aeroporto de destino.");

@@ -2,7 +2,6 @@ package br.com.wondertravel.passagens;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.DatePickerDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
@@ -35,7 +34,6 @@ import org.json.JSONTokener;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -151,9 +149,9 @@ public final class MainActivity extends Activity {
 
     private void setupDateRangeFields() {
         outboundDates.setOnClickListener(v ->
-                openDateRangePicker(outboundDates, "Data inicial da ida"));
+                openDateRangePicker(outboundDates, false));
         returnDates.setOnClickListener(v ->
-                openDateRangePicker(returnDates, "Data inicial da volta"));
+                openDateRangePicker(returnDates, true));
     }
 
     private void loadForm(SearchConfig c) {
@@ -200,46 +198,52 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void openDateRangePicker(EditText field, String startTitle) {
+    private void openDateRangePicker(EditText field, boolean returnTrip) {
         List<LocalDate> current;
         try {
             current = SearchConfig.parseDates(serializedDates(field));
         } catch (Exception ignored) {
             current = new ArrayList<>();
         }
-        LocalDate initial = current.isEmpty() ? LocalDate.now() : current.get(0);
-        DatePickerDialog startDialog = new DatePickerDialog(
-                this,
-                (view, year, month, day) -> {
-                    LocalDate start = LocalDate.of(year, month + 1, day);
-                    openEndDatePicker(field, start);
-                },
-                initial.getYear(), initial.getMonthValue() - 1, initial.getDayOfMonth()
-        );
-        startDialog.setTitle(startTitle);
-        startDialog.getDatePicker().setMinDate(
-                LocalDate.now().atStartOfDay(ZoneId.systemDefault())
-                        .toInstant().toEpochMilli());
-        startDialog.show();
+        LocalDate minimum = LocalDate.now();
+        if (returnTrip) {
+            try {
+                List<LocalDate> outbound = SearchConfig.parseDates(
+                        serializedDates(outboundDates));
+                if (!outbound.isEmpty()) {
+                    minimum = outbound.get(outbound.size() - 1).plusDays(1);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        LocalDate initialStart = current.isEmpty() || current.get(0).isBefore(minimum)
+                ? minimum : current.get(0);
+        LocalDate initialEnd = current.size() > 1
+                && !current.get(current.size() - 1).isBefore(initialStart)
+                ? current.get(current.size() - 1) : null;
+
+        String title = returnTrip ? "Escolha o período da volta"
+                : "Escolha o período da ida";
+        new DateRangeDialog(this, title, initialStart, initialEnd, minimum, 3,
+                (start, end) -> {
+                    showDateRange(field, serializeRange(start, end));
+                    if (!returnTrip) clearInvalidReturn(end);
+                }).show();
     }
 
-    private void openEndDatePicker(EditText field, LocalDate start) {
-        LocalDate maxEnd = start.plusDays(2);
-        DatePickerDialog endDialog = new DatePickerDialog(
-                this,
-                (view, year, month, day) -> {
-                    LocalDate end = LocalDate.of(year, month + 1, day);
-                    showDateRange(field, serializeRange(start, end));
-                },
-                maxEnd.getYear(), maxEnd.getMonthValue() - 1, maxEnd.getDayOfMonth()
-        );
-        endDialog.setTitle("Data final — período máximo de 3 dias");
-        endDialog.getDatePicker().setMinDate(
-                start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli());
-        endDialog.getDatePicker().setMaxDate(
-                maxEnd.atTime(23, 59).atZone(ZoneId.systemDefault())
-                        .toInstant().toEpochMilli());
-        endDialog.show();
+    private void clearInvalidReturn(LocalDate outboundEnd) {
+        try {
+            List<LocalDate> returns = SearchConfig.parseDates(
+                    serializedDates(returnDates));
+            if (!returns.isEmpty() && !returns.get(0).isAfter(outboundEnd)) {
+                returnDates.setTag("");
+                returnDates.setText("");
+                Toast.makeText(this,
+                        "Escolha novamente a volta, depois do período de ida.",
+                        Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private String serializeRange(LocalDate start, LocalDate end) {
