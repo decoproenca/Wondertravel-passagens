@@ -15,6 +15,9 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -45,6 +48,7 @@ public final class MainActivity extends Activity {
     private static final String SMILES_HOME = "https://www.smiles.com.br/portal/passagens";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, FlightParser.Result> results = new LinkedHashMap<>();
+    private final Map<String, String> failures = new LinkedHashMap<>();
 
     private Spinner originMode;
     private EditText destination;
@@ -65,6 +69,8 @@ public final class MainActivity extends Activity {
     private List<SearchConfig.Task> tasks;
     private int taskIndex = -1;
     private boolean scanning;
+    private int currentHttpStatus;
+    private String currentWebViewError;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -193,6 +199,7 @@ public final class MainActivity extends Activity {
         }
         scanning = true;
         results.clear();
+        failures.clear();
         taskIndex = 0;
         scanButton.setEnabled(false);
         loadTask();
@@ -204,6 +211,8 @@ public final class MainActivity extends Activity {
             return;
         }
         SearchConfig.Task task = tasks.get(taskIndex);
+        currentHttpStatus = 0;
+        currentWebViewError = null;
         status.setText("Verificando " + (taskIndex + 1) + "/" + tasks.size()
                 + ": " + task.label + " • "
                 + task.displayDate(task.dates.get(0)) + "...");
@@ -240,9 +249,28 @@ public final class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (scanning && url.contains("/mfe/emissao-passagem")) {
-                    handler.postDelayed(() -> inspect(0), 5000);
+                    handler.postDelayed(() -> inspect(0),
+                            SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
                 } else if (!scanning) {
                     restoreLastScan();
+                }
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                                            WebResourceResponse response) {
+                int status = response.getStatusCode();
+                if (scanning && (status == 403 || status == 429 || status >= 500)) {
+                    currentHttpStatus = status;
+                }
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        WebResourceError error) {
+                if (scanning && request.isForMainFrame()) {
+                    currentWebViewError = "WebView " + error.getErrorCode()
+                            + " — " + error.getDescription();
                 }
             }
         });
@@ -265,16 +293,22 @@ public final class MainActivity extends Activity {
                         }
                     }
                     FlightParser.Result saved = results.get(key);
-                    boolean loading = text != null
-                            && text.contains("Aguarde enquanto buscamos");
+                    boolean loading = SearchDiagnostics.isLoading(text);
+                    boolean noFare = SearchDiagnostics.isNoFare(text);
                     if (saved != null && saved.hasFlightDetails() && !loading) {
                         advance();
-                    } else if (saved != null && attempt >= 3 && !loading) {
+                    } else if (saved != null && attempt >= 8 && !loading) {
                         advance();
-                    } else if (attempt >= 8) {
+                    } else if (noFare && !loading) {
+                        failures.put(key, "sem tarifa disponível");
+                        advance();
+                    } else if (attempt >= SearchDiagnostics.MAX_INSPECTION_ATTEMPT) {
+                        failures.put(key, SearchDiagnostics.describe(
+                                text, currentHttpStatus, currentWebViewError));
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(attempt + 1), 2000);
+                        handler.postDelayed(() -> inspect(attempt + 1),
+                                SearchDiagnostics.INSPECTION_INTERVAL_MS);
                     }
                 });
     }
@@ -309,7 +343,14 @@ public final class MainActivity extends Activity {
                 summary.append("\n").append(task.label).append("\n")
                         .append(task.displayDate(date));
                 if (result == null) {
-                    summary.append(" • não foi possível ler\n");
+                    String failure = failures.get(task.label + "|" + date);
+                    if ("sem tarifa disponível".equals(failure)) {
+                        summary.append(" • sem tarifa disponível\n");
+                    } else {
+                        summary.append(" • erro na consulta: ")
+                                .append(failure == null ? "motivo não identificado" : failure)
+                                .append("\n");
+                    }
                 } else {
                     if (result.hasFlightDetails()) {
                         summary.append(" • ").append(result.departureTime)
@@ -368,8 +409,11 @@ public final class MainActivity extends Activity {
             String type = "—";
             String miles = "—";
 
-            if (detail.contains("não foi possível ler")) {
-                type = "Falha";
+            if (detail.contains("sem tarifa disponível")) {
+                type = "Sem tarifa";
+            } else if (detail.contains("erro na consulta:")) {
+                type = detail.substring(detail.indexOf("erro na consulta:")
+                        + "erro na consulta:".length()).trim();
             } else if (detail.contains("horários não identificados")) {
                 type = "Não lido";
             } else {
