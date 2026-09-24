@@ -22,10 +22,10 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -50,8 +50,8 @@ public final class MainActivity extends Activity {
     private final Map<String, FlightParser.Result> results = new LinkedHashMap<>();
     private final Map<String, String> failures = new LinkedHashMap<>();
 
-    private Spinner originMode;
-    private EditText destination;
+    private AutoCompleteTextView originMode;
+    private AutoCompleteTextView destination;
     private EditText outboundDates;
     private EditText returnDates;
     private EditText adults;
@@ -79,7 +79,7 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(0xFF100D18);
         setContentView(R.layout.activity_main);
         bindViews();
-        setupOriginSpinner();
+        setupAirportFields();
         loadForm(SearchConfig.load(this));
         createNotificationChannel();
         requestNotificationPermission();
@@ -133,22 +133,24 @@ public final class MainActivity extends Activity {
         scanButton = findViewById(R.id.testSearch);
     }
 
-    private void setupOriginSpinner() {
-        String[] values = {"São Paulo (GRU + CGH)", "GRU", "CGH"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                this, R.layout.spinner_item, values);
-        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
-        originMode.setAdapter(adapter);
+    private void setupAirportFields() {
+        ArrayAdapter<String> originAdapter = new ArrayAdapter<>(
+                this, R.layout.spinner_dropdown_item, AirportCatalog.options());
+        ArrayAdapter<String> destinationAdapter = new ArrayAdapter<>(
+                this, R.layout.spinner_dropdown_item, AirportCatalog.options());
+        originMode.setAdapter(originAdapter);
+        destination.setAdapter(destinationAdapter);
+        originMode.setThreshold(1);
+        destination.setThreshold(1);
+        originMode.setOnClickListener(v -> originMode.showDropDown());
+        destination.setOnClickListener(v -> destination.showDropDown());
     }
 
     private void loadForm(SearchConfig c) {
-        for (int i = 0; i < originMode.getCount(); i++) {
-            if (originMode.getItemAtPosition(i).toString().equals(c.originMode)) {
-                originMode.setSelection(i);
-                break;
-            }
-        }
-        destination.setText(c.destination);
+        originMode.setText(AirportCatalog.isSaoPauloAll(c.originMode)
+                ? AirportCatalog.SAO_PAULO_ALL
+                : AirportCatalog.displayForCode(AirportCatalog.extractCode(c.originMode)), false);
+        destination.setText(AirportCatalog.displayForCode(c.destination), false);
         outboundDates.setText(c.outboundDates);
         returnDates.setText(c.returnDates);
         adults.setText(String.valueOf(c.adults));
@@ -160,7 +162,7 @@ public final class MainActivity extends Activity {
     private SearchConfig saveForm() {
         try {
             SearchConfig candidate = new SearchConfig(
-                    originMode.getSelectedItem().toString(),
+                    originMode.getText().toString(),
                     destination.getText().toString(),
                     outboundDates.getText().toString(),
                     returnDates.getText().toString(),
@@ -439,6 +441,7 @@ public final class MainActivity extends Activity {
         ResultRow bestInbound = cheapest(inbound);
         addBestMatch("IDA", bestOutbound);
         addBestMatch("VOLTA", bestInbound);
+        addTripTotal(bestOutbound, bestInbound);
 
         resultsTitle.setVisibility(View.VISIBLE);
         resultsTable.setVisibility(View.VISIBLE);
@@ -506,6 +509,30 @@ public final class MainActivity extends Activity {
                     + row.milesText + " milhas por viajante");
         }
         bestMatchContainer.addView(card);
+    }
+
+    private void addTripTotal(ResultRow outbound, ResultRow inbound) {
+        TextView total = new TextView(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(12), 0, 0);
+        total.setLayoutParams(params);
+        total.setBackgroundResource(R.drawable.bg_best_match);
+        total.setPadding(dp(16), dp(15), dp(16), dp(15));
+        total.setTextColor(Color.parseColor("#F4EFFA"));
+        total.setTextSize(14);
+        total.setTypeface(total.getTypeface(), android.graphics.Typeface.BOLD);
+        if (outbound == null || inbound == null) {
+            total.setText("TOTAL DA VIAGEM — 1 PASSAGEIRO\n"
+                    + "Indisponível enquanto faltar uma tarifa de ida ou volta.");
+        } else {
+            int tripTotal = outbound.milesValue + inbound.milesValue;
+            total.setText("TOTAL DA VIAGEM — 1 PASSAGEIRO\n"
+                    + "Ida: " + format(outbound.milesValue) + " milhas\n"
+                    + "Volta: " + format(inbound.milesValue) + " milhas\n"
+                    + "Total: " + format(tripTotal) + " milhas");
+        }
+        bestMatchContainer.addView(total);
     }
 
     private ResultRow cheapest(List<ResultRow> rows) {

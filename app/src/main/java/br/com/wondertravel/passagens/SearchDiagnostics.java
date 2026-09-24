@@ -5,7 +5,7 @@ import java.util.Locale;
 final class SearchDiagnostics {
     static final int FIRST_INSPECTION_DELAY_MS = 7000;
     static final int INSPECTION_INTERVAL_MS = 3000;
-    static final int MAX_INSPECTION_ATTEMPT = 29;
+    static final int MAX_INSPECTION_ATTEMPT = 39;
 
     static boolean isLoading(String text) {
         String value = normalize(text);

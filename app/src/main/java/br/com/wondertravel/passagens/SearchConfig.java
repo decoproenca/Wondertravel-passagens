@@ -28,7 +28,7 @@ public final class SearchConfig {
                  String returnDates, int adults, int children,
                  int targetMiles, int intervalMinutes) {
         this.originMode = originMode;
-        this.destination = destination.toUpperCase(Locale.ROOT).trim();
+        this.destination = AirportCatalog.extractCode(destination);
         this.outboundDates = outboundDates.trim();
         this.returnDates = returnDates.trim();
         this.adults = adults;
@@ -73,16 +73,22 @@ public final class SearchConfig {
             throw new IllegalArgumentException("A volta precisa ser posterior à ida.");
         }
         if (destination.length() != 3) {
-            throw new IllegalArgumentException("O destino deve ter 3 letras, por exemplo BPS.");
+            throw new IllegalArgumentException("Selecione ou informe um aeroporto de destino.");
         }
         if (adults < 1 || children < 0 || targetMiles < 1000 || intervalMinutes < 15) {
             throw new IllegalArgumentException("Revise passageiros, limite e intervalo mínimo de 15 minutos.");
         }
 
         List<String> origins;
-        if (originMode.startsWith("GRU")) origins = Arrays.asList("GRU");
-        else if (originMode.startsWith("CGH")) origins = Arrays.asList("CGH");
-        else origins = Arrays.asList("GRU", "CGH");
+        if (AirportCatalog.isSaoPauloAll(originMode)) {
+            origins = Arrays.asList("GRU", "CGH");
+        } else {
+            String origin = AirportCatalog.extractCode(originMode);
+            if (origin.length() != 3) {
+                throw new IllegalArgumentException("Selecione ou informe um aeroporto de origem.");
+            }
+            origins = Arrays.asList(origin);
+        }
 
         List<Task> tasks = new ArrayList<>();
         for (String origin : origins) {
