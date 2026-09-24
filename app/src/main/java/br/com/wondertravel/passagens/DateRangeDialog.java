@@ -225,7 +225,7 @@ final class DateRangeDialog {
         Button button = new Button(context);
         button.setText(value);
         button.setTextColor(Color.WHITE);
-        button.setTextAllCaps(false);
+        button.setAllCaps(false);
         button.setBackground(rounded(color, 12, null));
         return button;
     }
