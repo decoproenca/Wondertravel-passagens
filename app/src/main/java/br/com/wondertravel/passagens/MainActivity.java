@@ -2,6 +2,7 @@ package br.com.wondertravel.passagens;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.DatePickerDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
@@ -34,6 +35,7 @@ import org.json.JSONTokener;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -80,6 +82,7 @@ public final class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         bindViews();
         setupAirportFields();
+        setupDateRangeFields();
         loadForm(SearchConfig.load(this));
         createNotificationChannel();
         requestNotificationPermission();
@@ -146,13 +149,20 @@ public final class MainActivity extends Activity {
         destination.setOnClickListener(v -> destination.showDropDown());
     }
 
+    private void setupDateRangeFields() {
+        outboundDates.setOnClickListener(v ->
+                openDateRangePicker(outboundDates, "Data inicial da ida"));
+        returnDates.setOnClickListener(v ->
+                openDateRangePicker(returnDates, "Data inicial da volta"));
+    }
+
     private void loadForm(SearchConfig c) {
         originMode.setText(AirportCatalog.isSaoPauloAll(c.originMode)
                 ? AirportCatalog.SAO_PAULO_ALL
                 : AirportCatalog.displayForCode(AirportCatalog.extractCode(c.originMode)), false);
         destination.setText(AirportCatalog.displayForCode(c.destination), false);
-        outboundDates.setText(c.outboundDates);
-        returnDates.setText(c.returnDates);
+        showDateRange(outboundDates, c.outboundDates);
+        showDateRange(returnDates, c.returnDates);
         adults.setText(String.valueOf(c.adults));
         children.setText(String.valueOf(c.children));
         targetMiles.setText(String.valueOf(c.targetMiles));
@@ -164,8 +174,8 @@ public final class MainActivity extends Activity {
             SearchConfig candidate = new SearchConfig(
                     originMode.getText().toString(),
                     destination.getText().toString(),
-                    outboundDates.getText().toString(),
-                    returnDates.getText().toString(),
+                    serializedDates(outboundDates),
+                    serializedDates(returnDates),
                     number(adults, "adultos"),
                     number(children, "crianças"),
                     number(targetMiles, "limite de milhas"),
@@ -188,6 +198,87 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             throw new IllegalArgumentException("Informe " + label + ".");
         }
+    }
+
+    private void openDateRangePicker(EditText field, String startTitle) {
+        List<LocalDate> current;
+        try {
+            current = SearchConfig.parseDates(serializedDates(field));
+        } catch (Exception ignored) {
+            current = new ArrayList<>();
+        }
+        LocalDate initial = current.isEmpty() ? LocalDate.now() : current.get(0);
+        DatePickerDialog startDialog = new DatePickerDialog(
+                this,
+                (view, year, month, day) -> {
+                    LocalDate start = LocalDate.of(year, month + 1, day);
+                    openEndDatePicker(field, start);
+                },
+                initial.getYear(), initial.getMonthValue() - 1, initial.getDayOfMonth()
+        );
+        startDialog.setTitle(startTitle);
+        startDialog.getDatePicker().setMinDate(
+                LocalDate.now().atStartOfDay(ZoneId.systemDefault())
+                        .toInstant().toEpochMilli());
+        startDialog.show();
+    }
+
+    private void openEndDatePicker(EditText field, LocalDate start) {
+        LocalDate maxEnd = start.plusDays(2);
+        DatePickerDialog endDialog = new DatePickerDialog(
+                this,
+                (view, year, month, day) -> {
+                    LocalDate end = LocalDate.of(year, month + 1, day);
+                    showDateRange(field, serializeRange(start, end));
+                },
+                maxEnd.getYear(), maxEnd.getMonthValue() - 1, maxEnd.getDayOfMonth()
+        );
+        endDialog.setTitle("Data final — período máximo de 3 dias");
+        endDialog.getDatePicker().setMinDate(
+                start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli());
+        endDialog.getDatePicker().setMaxDate(
+                maxEnd.atTime(23, 59).atZone(ZoneId.systemDefault())
+                        .toInstant().toEpochMilli());
+        endDialog.show();
+    }
+
+    private String serializeRange(LocalDate start, LocalDate end) {
+        StringBuilder value = new StringBuilder();
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            if (value.length() > 0) value.append(", ");
+            value.append(displayDate(date));
+        }
+        return value.toString();
+    }
+
+    private void showDateRange(EditText field, String serialized) {
+        List<LocalDate> dates;
+        try {
+            dates = SearchConfig.parseDates(serialized);
+        } catch (Exception ignored) {
+            field.setTag(serialized);
+            field.setText(serialized);
+            return;
+        }
+        field.setTag(serialized);
+        if (dates.isEmpty()) {
+            field.setText("");
+        } else if (dates.size() == 1) {
+            field.setText(displayDate(dates.get(0)));
+        } else {
+            field.setText(displayDate(dates.get(0)) + " a "
+                    + displayDate(dates.get(dates.size() - 1)));
+        }
+    }
+
+    private String serializedDates(EditText field) {
+        Object value = field.getTag();
+        return value == null ? field.getText().toString() : value.toString();
+    }
+
+    private String displayDate(LocalDate date) {
+        return String.format(Locale.getDefault(), "%02d/%02d/%04d",
+                date.getDayOfMonth(), date.getMonthValue(), date.getYear());
     }
 
     private void startScan() {

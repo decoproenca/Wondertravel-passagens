@@ -69,6 +69,8 @@ public final class SearchConfig {
         List<LocalDate> returns = parseDates(returnDates);
         if (outbound.isEmpty()) throw new IllegalArgumentException("Informe ao menos uma data de ida.");
         if (returns.isEmpty()) throw new IllegalArgumentException("Informe ao menos uma data de volta.");
+        validateDateRange(outbound, "ida");
+        validateDateRange(returns, "volta");
         if (!returns.get(0).isAfter(outbound.get(0))) {
             throw new IllegalArgumentException("A volta precisa ser posterior à ida.");
         }
@@ -104,6 +106,19 @@ public final class SearchConfig {
             }
         }
         return tasks;
+    }
+
+    private static void validateDateRange(List<LocalDate> dates, String label) {
+        if (dates.size() > 3) {
+            throw new IllegalArgumentException("O período de " + label
+                    + " pode ter no máximo 3 dias.");
+        }
+        for (int i = 1; i < dates.size(); i++) {
+            if (!dates.get(i).equals(dates.get(i - 1).plusDays(1))) {
+                throw new IllegalArgumentException("As datas de " + label
+                        + " precisam ser consecutivas.");
+            }
+        }
     }
 
     static List<LocalDate> parseDates(String value) {
