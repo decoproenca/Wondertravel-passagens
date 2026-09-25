@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -71,6 +72,14 @@ public final class MainActivity extends Activity {
     private boolean scanning;
     private int currentHttpStatus;
     private String currentWebViewError;
+    private long scanStartedAt;
+    private final Runnable scanTimer = new Runnable() {
+        @Override public void run() {
+            if (!scanning) return;
+            updateScanProgress();
+            handler.postDelayed(this, 1000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle state) {
@@ -298,7 +307,10 @@ public final class MainActivity extends Activity {
         results.clear();
         failures.clear();
         taskIndex = 0;
+        scanStartedAt = SystemClock.elapsedRealtime();
         scanButton.setEnabled(false);
+        handler.removeCallbacks(scanTimer);
+        handler.post(scanTimer);
         loadTask();
     }
 
@@ -310,10 +322,19 @@ public final class MainActivity extends Activity {
         SearchConfig.Task task = tasks.get(taskIndex);
         currentHttpStatus = 0;
         currentWebViewError = null;
-        status.setText("Verificando " + (taskIndex + 1) + "/" + tasks.size()
-                + ": " + task.label + " • "
-                + task.displayDate(task.dates.get(0)) + "...");
+        updateScanProgress();
         webView.loadUrl(buildUrl(task));
+    }
+
+    private void updateScanProgress() {
+        if (!scanning || tasks == null || tasks.isEmpty()
+                || taskIndex < 0 || taskIndex >= tasks.size()) return;
+        SearchConfig.Task task = tasks.get(taskIndex);
+        long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
+        status.setText("Verificando " + (taskIndex + 1) + "/" + tasks.size()
+                + ": " + task.label + " • " + task.displayDate(task.dates.get(0))
+                + "\n" + taskIndex + "/" + tasks.size() + " concluídas • "
+                + "Tempo: " + formatDuration(elapsed));
     }
 
     private String buildUrl(SearchConfig.Task task) {
@@ -425,7 +446,9 @@ public final class MainActivity extends Activity {
     }
 
     private void finishScan() {
+        long elapsed = Math.max(0, SystemClock.elapsedRealtime() - scanStartedAt);
         scanning = false;
+        handler.removeCallbacks(scanTimer);
         taskIndex = -1;
         scanButton.setEnabled(true);
         String checkedAt = new SimpleDateFormat("dd/MM/yyyy 'às' HH:mm",
@@ -466,6 +489,11 @@ public final class MainActivity extends Activity {
         else summary.append("Menor valor: ").append(format(lowest.miles)).append(" milhas — ")
                 .append(lowest.miles < config.targetMiles ? "OPORTUNIDADE!" :
                         "acima de " + format(config.targetMiles) + ".");
+        long average = tasks.isEmpty() ? 0 : elapsed / tasks.size();
+        summary.append("\nTempo da varredura: ").append(tasks.size()).append("/")
+                .append(tasks.size()).append(" concluídas • ")
+                .append(formatDuration(elapsed)).append(" • média ")
+                .append(formatDuration(average)).append(" por consulta.");
 
         String finalText = summary.toString().trim();
         getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
@@ -484,8 +512,13 @@ public final class MainActivity extends Activity {
 
         String[] lines = saved.split("\\n");
         String first = lines.length > 0 ? lines[0] : "Varredura concluída.";
-        String last = lines.length > 1 ? lines[lines.length - 1] : "";
-        status.setText(first + (last.startsWith("Menor valor:") ? "\n" + last : ""));
+        StringBuilder statusSummary = new StringBuilder(first);
+        for (String line : lines) {
+            if (line.startsWith("Menor valor:") || line.startsWith("Tempo da varredura:")) {
+                statusSummary.append("\n").append(line);
+            }
+        }
+        status.setText(statusSummary.toString());
 
         resultsTable.removeAllViews();
         bestMatchContainer.removeAllViews();
@@ -618,14 +651,20 @@ public final class MainActivity extends Activity {
         total.setTextSize(14);
         total.setTypeface(total.getTypeface(), android.graphics.Typeface.BOLD);
         if (outbound == null || inbound == null) {
-            total.setText("TOTAL DA VIAGEM — 1 PASSAGEIRO\n"
+            total.setText("TOTAL DA VIAGEM\n"
                     + "Indisponível enquanto faltar uma tarifa de ida ou volta.");
         } else {
-            int tripTotal = outbound.milesValue + inbound.milesValue;
+            long tripTotal = (long) outbound.milesValue + inbound.milesValue;
+            SearchConfig saved = SearchConfig.load(this);
+            int passengers = Math.max(1, saved.adults + saved.children);
+            long groupTotal = tripTotal * passengers;
             total.setText("TOTAL DA VIAGEM — 1 PASSAGEIRO\n"
                     + "Ida: " + format(outbound.milesValue) + " milhas\n"
                     + "Volta: " + format(inbound.milesValue) + " milhas\n"
-                    + "Total: " + format(tripTotal) + " milhas");
+                    + "Total individual: " + format(tripTotal) + " milhas\n\n"
+                    + "TOTAL PARA " + passengers + " PASSAGEIRO"
+                    + (passengers == 1 ? "" : "S") + "\n"
+                    + format(groupTotal) + " milhas");
         }
         bestMatchContainer.addView(total);
     }
@@ -703,8 +742,18 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private String format(int value) {
+    private String format(long value) {
         return NumberFormat.getIntegerInstance(new Locale("pt", "BR")).format(value);
+    }
+
+    private String formatDuration(long milliseconds) {
+        long totalSeconds = Math.max(0, milliseconds / 1000);
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        if (hours > 0) return hours + "h " + String.format(Locale.getDefault(), "%02dmin %02ds", minutes, seconds);
+        if (minutes > 0) return minutes + "min " + String.format(Locale.getDefault(), "%02ds", seconds);
+        return seconds + "s";
     }
 
     private void restoreLastScan() {
