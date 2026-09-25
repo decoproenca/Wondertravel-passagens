@@ -138,10 +138,19 @@ public final class MonitorService extends Service {
         SearchConfig.Task task = tasks.get(taskIndex);
         currentHttpStatus = 0;
         currentWebViewError = null;
-        updateStatus("Verificando " + (taskIndex + 1) + "/" + tasks.size()
-                + ": " + task.label + " • "
-                + task.displayDate(task.dates.get(0)) + " • "
-                + formatDuration(SystemClock.elapsedRealtime() - scanStartedAt));
+        long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
+        StringBuilder progress = new StringBuilder("Verificando ")
+                .append(taskIndex + 1).append("/").append(tasks.size())
+                .append(": ").append(task.label).append(" • ")
+                .append(task.displayDate(task.dates.get(0))).append(" • ")
+                .append(formatDuration(elapsed));
+        int etaThreshold = Math.max(1, (int) Math.ceil(tasks.size() * 0.20));
+        if (taskIndex >= etaThreshold) {
+            long average = elapsed / taskIndex;
+            long remaining = average * (tasks.size() - taskIndex);
+            progress.append(" • faltam ~").append(formatDuration(remaining));
+        }
+        updateStatus(progress.toString());
         webView.loadUrl(buildUrl(task));
     }
 
