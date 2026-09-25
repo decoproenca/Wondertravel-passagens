@@ -86,7 +86,8 @@ public final class MonitorService extends Service {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (scanning && url.contains("/mfe/emissao-passagem")) {
-                    handler.postDelayed(() -> inspect(0),
+                    int expectedTaskIndex = taskIndex;
+                    handler.postDelayed(() -> inspect(0, expectedTaskIndex),
                             SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
                 }
             }
@@ -95,7 +96,8 @@ public final class MonitorService extends Service {
             public void onReceivedHttpError(WebView view, WebResourceRequest request,
                                             WebResourceResponse response) {
                 int status = response.getStatusCode();
-                if (scanning && (status == 403 || status == 429 || status >= 500)) {
+                if (scanning && request.isForMainFrame()
+                        && (status == 403 || status == 429 || status >= 500)) {
                     currentHttpStatus = status;
                 }
             }
@@ -168,11 +170,13 @@ public final class MonitorService extends Service {
                 + "&novo-resultado-voos=true";
     }
 
-    private void inspect(int attempt) {
-        if (!scanning || taskIndex < 0 || taskIndex >= tasks.size()) return;
+    private void inspect(int attempt, int expectedTaskIndex) {
+        if (!scanning || expectedTaskIndex != taskIndex
+                || taskIndex < 0 || taskIndex >= tasks.size()) return;
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
+                    if (!scanning || expectedTaskIndex != taskIndex) return;
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
                     FlightParser.Result parsed = FlightParser.parse(text, task);
@@ -187,7 +191,12 @@ public final class MonitorService extends Service {
                     FlightParser.Result saved = results.get(key);
                     boolean loading = SearchDiagnostics.isLoading(text);
                     boolean noFare = SearchDiagnostics.isNoFare(text);
-                    if (saved != null && saved.hasFlightDetails() && !loading) {
+                    if (currentHttpStatus == 403 || currentHttpStatus == 429
+                            || currentHttpStatus >= 500 || currentWebViewError != null) {
+                        failures.put(key, SearchDiagnostics.describe(
+                                text, currentHttpStatus, currentWebViewError));
+                        advance();
+                    } else if (saved != null && saved.hasFlightDetails() && !loading) {
                         advance();
                     } else if (saved != null && attempt >= 8 && !loading) {
                         advance();
@@ -199,7 +208,7 @@ public final class MonitorService extends Service {
                                 text, currentHttpStatus, currentWebViewError));
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(attempt + 1),
+                        handler.postDelayed(() -> inspect(attempt + 1, expectedTaskIndex),
                                 SearchDiagnostics.INSPECTION_INTERVAL_MS);
                     }
                 });
