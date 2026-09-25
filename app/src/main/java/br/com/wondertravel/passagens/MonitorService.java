@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -48,6 +49,7 @@ public final class MonitorService extends Service {
     private boolean scanning;
     private int currentHttpStatus;
     private String currentWebViewError;
+    private long scanStartedAt;
 
     @Override
     public void onCreate() {
@@ -123,6 +125,7 @@ public final class MonitorService extends Service {
         results.clear();
         failures.clear();
         taskIndex = 0;
+        scanStartedAt = SystemClock.elapsedRealtime();
         updateStatus("Verificando 1/" + tasks.size() + "...");
         loadTask();
     }
@@ -137,7 +140,8 @@ public final class MonitorService extends Service {
         currentWebViewError = null;
         updateStatus("Verificando " + (taskIndex + 1) + "/" + tasks.size()
                 + ": " + task.label + " • "
-                + task.displayDate(task.dates.get(0)));
+                + task.displayDate(task.dates.get(0)) + " • "
+                + formatDuration(SystemClock.elapsedRealtime() - scanStartedAt));
         webView.loadUrl(buildUrl(task));
     }
 
@@ -207,6 +211,7 @@ public final class MonitorService extends Service {
     }
 
     private void finishScan() {
+        long elapsed = Math.max(0, SystemClock.elapsedRealtime() - scanStartedAt);
         scanning = false;
         taskIndex = -1;
         String checkedAt = new SimpleDateFormat("dd/MM/yyyy 'às' HH:mm",
@@ -256,6 +261,11 @@ public final class MonitorService extends Service {
             updateStatus("Monitor ativo — menor valor: " + format(lowest.miles)
                     + " milhas. Próxima em " + config.intervalMinutes + " min.");
         }
+        long average = tasks.isEmpty() ? 0 : elapsed / tasks.size();
+        summary.append("\nTempo da varredura: ").append(tasks.size()).append("/")
+                .append(tasks.size()).append(" concluídas • ")
+                .append(formatDuration(elapsed)).append(" • média ")
+                .append(formatDuration(average)).append(" por consulta.");
 
         getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
                 .putString("last_scan", summary.toString().trim())
@@ -291,6 +301,16 @@ public final class MonitorService extends Service {
 
     private String format(int value) {
         return NumberFormat.getIntegerInstance(new Locale("pt", "BR")).format(value);
+    }
+
+    private String formatDuration(long milliseconds) {
+        long totalSeconds = Math.max(0, milliseconds / 1000);
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        if (hours > 0) return hours + "h " + String.format(Locale.getDefault(), "%02dmin %02ds", minutes, seconds);
+        if (minutes > 0) return minutes + "min " + String.format(Locale.getDefault(), "%02ds", seconds);
+        return seconds + "s";
     }
 
     private void createChannels() {
