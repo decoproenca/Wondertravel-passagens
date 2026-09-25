@@ -331,10 +331,20 @@ public final class MainActivity extends Activity {
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         SearchConfig.Task task = tasks.get(taskIndex);
         long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
-        status.setText("Verificando " + (taskIndex + 1) + "/" + tasks.size()
-                + ": " + task.label + " • " + task.displayDate(task.dates.get(0))
-                + "\n" + taskIndex + "/" + tasks.size() + " concluídas • "
-                + "Tempo: " + formatDuration(elapsed));
+        StringBuilder progress = new StringBuilder("Verificando ")
+                .append(taskIndex + 1).append("/").append(tasks.size())
+                .append(": ").append(task.label).append(" • ")
+                .append(task.displayDate(task.dates.get(0)))
+                .append("\n").append(taskIndex).append("/").append(tasks.size())
+                .append(" concluídas • Tempo: ").append(formatDuration(elapsed));
+        int etaThreshold = Math.max(1, (int) Math.ceil(tasks.size() * 0.20));
+        if (taskIndex >= etaThreshold) {
+            long average = elapsed / taskIndex;
+            long remaining = average * (tasks.size() - taskIndex);
+            progress.append("\nTempo restante estimado: ~")
+                    .append(formatDuration(remaining));
+        }
+        status.setText(progress.toString());
     }
 
     private String buildUrl(SearchConfig.Task task) {
