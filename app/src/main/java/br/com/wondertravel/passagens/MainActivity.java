@@ -6,6 +6,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Build;
@@ -13,6 +14,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -59,6 +62,15 @@ public final class MainActivity extends Activity {
     private EditText children;
     private EditText targetMiles;
     private EditText intervalMinutes;
+    private EditText pointsBalance;
+    private EditText matchMiles;
+    private EditText thousandCost;
+    private TextView pointsNeeded;
+    private TextView investmentValue;
+    private View radarScreen;
+    private View pointsScreen;
+    private Button radarTab;
+    private Button pointsTab;
     private TextView status;
     private TextView resultsTitle;
     private LinearLayout resultsTable;
@@ -88,6 +100,8 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(0xFF100D18);
         setContentView(R.layout.activity_main);
         bindViews();
+        setupBottomNavigation();
+        setupPointsCalculator();
         setupAirportFields();
         setupDateRangeFields();
         loadForm(SearchConfig.load(this));
@@ -134,6 +148,15 @@ public final class MainActivity extends Activity {
         children = findViewById(R.id.children);
         targetMiles = findViewById(R.id.targetMiles);
         intervalMinutes = findViewById(R.id.intervalMinutes);
+        pointsBalance = findViewById(R.id.pointsBalance);
+        matchMiles = findViewById(R.id.matchMiles);
+        thousandCost = findViewById(R.id.thousandCost);
+        pointsNeeded = findViewById(R.id.pointsNeeded);
+        investmentValue = findViewById(R.id.investmentValue);
+        radarScreen = findViewById(R.id.radarScreen);
+        pointsScreen = findViewById(R.id.pointsScreen);
+        radarTab = findViewById(R.id.radarTab);
+        pointsTab = findViewById(R.id.pointsTab);
         status = findViewById(R.id.status);
         resultsTitle = findViewById(R.id.resultsTitle);
         resultsTable = findViewById(R.id.resultsTable);
@@ -141,6 +164,84 @@ public final class MainActivity extends Activity {
         bestMatchContainer = findViewById(R.id.bestMatchContainer);
         webView = findViewById(R.id.webView);
         scanButton = findViewById(R.id.testSearch);
+    }
+
+    private void setupBottomNavigation() {
+        radarTab.setOnClickListener(v -> selectTab(true));
+        pointsTab.setOnClickListener(v -> selectTab(false));
+        selectTab(true);
+    }
+
+    private void selectTab(boolean radarSelected) {
+        radarScreen.setVisibility(radarSelected ? View.VISIBLE : View.GONE);
+        pointsScreen.setVisibility(radarSelected ? View.GONE : View.VISIBLE);
+        radarTab.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor(
+                radarSelected ? "#7B4DFF" : "#2B243D")));
+        pointsTab.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor(
+                radarSelected ? "#2B243D" : "#7B4DFF")));
+        radarTab.setTextColor(Color.parseColor(radarSelected ? "#FFFFFF" : "#CFC6DC"));
+        pointsTab.setTextColor(Color.parseColor(radarSelected ? "#CFC6DC" : "#FFFFFF"));
+        if (!radarSelected) updatePointsCalculator();
+    }
+
+    private void setupPointsCalculator() {
+        android.content.SharedPreferences prefs = getSharedPreferences(
+                SearchConfig.PREFS, MODE_PRIVATE);
+        pointsBalance.setText(prefs.getString("calculator_balance", ""));
+        thousandCost.setText(prefs.getString("calculator_thousand_cost", ""));
+        String savedMatch = prefs.getString("calculator_match_miles", "");
+        if (savedMatch.isEmpty()) {
+            long latestMatch = prefs.getLong("last_match_group_miles", 0);
+            if (latestMatch > 0) savedMatch = String.valueOf(latestMatch);
+        }
+        matchMiles.setText(savedMatch);
+
+        TextWatcher watcher = new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updatePointsCalculator();
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        };
+        pointsBalance.addTextChangedListener(watcher);
+        matchMiles.addTextChangedListener(watcher);
+        thousandCost.addTextChangedListener(watcher);
+        updatePointsCalculator();
+    }
+
+    private void updatePointsCalculator() {
+        if (pointsBalance == null) return;
+        long balance = calculatorLong(pointsBalance);
+        long required = calculatorLong(matchMiles);
+        long needed = Math.max(0, required - balance);
+        double cost = calculatorDecimal(thousandCost);
+        double investment = needed / 1000.0 * cost;
+        pointsNeeded.setText(format(needed) + " milhas");
+        investmentValue.setText(NumberFormat.getCurrencyInstance(
+                new Locale("pt", "BR")).format(investment));
+        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                .putString("calculator_balance", pointsBalance.getText().toString().trim())
+                .putString("calculator_match_miles", matchMiles.getText().toString().trim())
+                .putString("calculator_thousand_cost", thousandCost.getText().toString().trim())
+                .apply();
+    }
+
+    private long calculatorLong(EditText field) {
+        try {
+            return Long.parseLong(field.getText().toString().replaceAll("[^0-9]", ""));
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private double calculatorDecimal(EditText field) {
+        try {
+            String value = field.getText().toString().trim();
+            if (value.contains(",")) value = value.replace(".", "").replace(',', '.');
+            return Double.parseDouble(value);
+        } catch (Exception ignored) {
+            return 0;
+        }
     }
 
     private void setupAirportFields() {
@@ -677,6 +778,13 @@ public final class MainActivity extends Activity {
             SearchConfig saved = SearchConfig.load(this);
             int passengers = Math.max(1, saved.adults + saved.children);
             long groupTotal = tripTotal * passengers;
+            android.content.SharedPreferences prefs = getSharedPreferences(
+                    SearchConfig.PREFS, MODE_PRIVATE);
+            long previousMatch = prefs.getLong("last_match_group_miles", 0);
+            prefs.edit().putLong("last_match_group_miles", groupTotal).apply();
+            if (matchMiles != null && groupTotal != previousMatch) {
+                matchMiles.setText(String.valueOf(groupTotal));
+            }
             total.setText("TOTAL DA VIAGEM — 1 PASSAGEIRO\n"
                     + "Ida: " + format(outbound.milesValue) + " milhas\n"
                     + "Volta: " + format(inbound.milesValue) + " milhas\n"
