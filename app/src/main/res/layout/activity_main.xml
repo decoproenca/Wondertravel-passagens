@@ -521,32 +521,44 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:background="#181321"
+        android:layout_height="76dp"
+        android:background="#0D0A13"
+        android:gravity="center"
         android:orientation="horizontal"
-        android:padding="7dp">
+        android:paddingHorizontal="34dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="5dp">
 
-        <Button
+        <TextView
             android:id="@+id/radarTab"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:backgroundTint="#7B4DFF"
-            android:text="✈  Radar"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFF"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:drawableTop="@drawable/ic_radar"
+            android:drawablePadding="3dp"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="Radar"
+            android:textColor="#A98AF8"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
-        <Button
+        <TextView
             android:id="@+id/pointsTab"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:backgroundTint="#2B243D"
-            android:text="◆  Pontos"
-            android:textAllCaps="false"
-            android:textColor="#CFC6DC" />
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:drawableTop="@drawable/ic_points"
+            android:drawablePadding="3dp"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="Pontos"
+            android:textColor="#746C7E"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <WebView

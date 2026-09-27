@@ -69,8 +69,8 @@ public final class MainActivity extends Activity {
     private TextView investmentValue;
     private View radarScreen;
     private View pointsScreen;
-    private Button radarTab;
-    private Button pointsTab;
+    private TextView radarTab;
+    private TextView pointsTab;
     private TextView status;
     private TextView resultsTitle;
     private LinearLayout resultsTable;
@@ -175,12 +175,18 @@ public final class MainActivity extends Activity {
     private void selectTab(boolean radarSelected) {
         radarScreen.setVisibility(radarSelected ? View.VISIBLE : View.GONE);
         pointsScreen.setVisibility(radarSelected ? View.GONE : View.VISIBLE);
-        radarTab.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor(
-                radarSelected ? "#7B4DFF" : "#2B243D")));
-        pointsTab.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor(
-                radarSelected ? "#2B243D" : "#7B4DFF")));
-        radarTab.setTextColor(Color.parseColor(radarSelected ? "#FFFFFF" : "#CFC6DC"));
-        pointsTab.setTextColor(Color.parseColor(radarSelected ? "#CFC6DC" : "#FFFFFF"));
+        int active = Color.parseColor("#A98AF8");
+        int inactive = Color.parseColor("#746C7E");
+        radarTab.setTextColor(radarSelected ? active : inactive);
+        pointsTab.setTextColor(radarSelected ? inactive : active);
+        radarTab.setCompoundDrawableTintList(ColorStateList.valueOf(
+                radarSelected ? active : inactive));
+        pointsTab.setCompoundDrawableTintList(ColorStateList.valueOf(
+                radarSelected ? inactive : active));
+        radarTab.setTypeface(radarTab.getTypeface(), radarSelected
+                ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        pointsTab.setTypeface(pointsTab.getTypeface(), radarSelected
+                ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
         if (!radarSelected) updatePointsCalculator();
     }
 
