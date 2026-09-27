@@ -29,6 +29,7 @@
     </LinearLayout>
 
     <ScrollView
+        android:id="@+id/radarScreen"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -365,6 +366,188 @@
                 android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
+
+    <ScrollView
+        android:id="@+id/pointsScreen"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="18dp"
+            android:paddingBottom="28dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="PLANEJAMENTO DE MILHAS"
+                    android:textColor="#A98AF8"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Veja quantas milhas ainda precisa comprar e o investimento estimado."
+                    android:textColor="#91879F"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:text="Meu saldo Smiles"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/pointsBalance"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Ex.: 85000"
+                    android:inputType="number"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Milhas necessárias para o último match"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/matchMiles"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Preenchido pelo melhor match"
+                    android:inputType="number"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Milhas que preciso adquirir"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/pointsNeeded"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_results"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:text="0 milhas"
+                    android:textColor="#FF8A5B"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Custo do milheiro (R$)"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/thousandCost"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Ex.: 18,50"
+                    android:inputType="numberDecimal"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80758F" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Investimento estimado"
+                    android:textColor="#D8D1E5"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/investmentValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="68dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_best_match"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:text="R$ 0,00"
+                    android:textColor="#FFFFFF"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Estimativa sem considerar eventuais bônus, taxas ou promoções."
+                    android:textColor="#80758F"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:background="#181321"
+        android:orientation="horizontal"
+        android:padding="7dp">
+
+        <Button
+            android:id="@+id/radarTab"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:backgroundTint="#7B4DFF"
+            android:text="✈  Radar"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/pointsTab"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:backgroundTint="#2B243D"
+            android:text="◆  Pontos"
+            android:textAllCaps="false"
+            android:textColor="#CFC6DC" />
+    </LinearLayout>
 
     <WebView
         android:id="@+id/webView"
