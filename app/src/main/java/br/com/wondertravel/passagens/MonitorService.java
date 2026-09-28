@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceError;
@@ -39,6 +40,7 @@ public final class MonitorService extends Service {
     private static final String STATUS_CHANNEL = "monitor_status_visible_v2";
     private static final String ALERT_CHANNEL = "price_alerts";
     private static final int STATUS_NOTIFICATION_ID = 7001;
+    private static final long TASK_HARD_TIMEOUT_MS = 75000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, FlightParser.Result> results = new LinkedHashMap<>();
     private final Map<String, String> failures = new LinkedHashMap<>();
@@ -50,6 +52,7 @@ public final class MonitorService extends Service {
     private int currentHttpStatus;
     private String currentWebViewError;
     private long scanStartedAt;
+    private PowerManager.WakeLock scanWakeLock;
 
     @Override
     public void onCreate() {
@@ -62,13 +65,23 @@ public final class MonitorService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("monitor_enabled", false).apply();
+            releaseScanWakeLock();
             stopSelf();
             return START_NOT_STICKY;
         }
         if (intent != null && ACTION_RELOAD.equals(intent.getAction())) {
+            getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("monitor_enabled", true).apply();
             handler.removeCallbacksAndMessages(null);
             scanning = false;
             taskIndex = -1;
+        }
+        if (intent == null && !getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getBoolean("monitor_enabled", false)) {
+            stopSelf();
+            return START_NOT_STICKY;
         }
         if (!scanning && taskIndex < 0) startScan();
         return START_STICKY;
@@ -124,6 +137,7 @@ public final class MonitorService extends Service {
             return;
         }
         scanning = true;
+        acquireScanWakeLock(tasks.size());
         results.clear();
         failures.clear();
         taskIndex = 0;
@@ -153,7 +167,35 @@ public final class MonitorService extends Service {
             progress.append(" • faltam ~").append(formatDuration(remaining));
         }
         updateStatus(progress.toString());
+        int expectedTaskIndex = taskIndex;
+        handler.postDelayed(() -> handleTaskHardTimeout(expectedTaskIndex),
+                TASK_HARD_TIMEOUT_MS);
         webView.loadUrl(buildUrl(task));
+    }
+
+    private void handleTaskHardTimeout(int expectedTaskIndex) {
+        if (!scanning || expectedTaskIndex != taskIndex
+                || taskIndex < 0 || taskIndex >= tasks.size()) return;
+        SearchConfig.Task task = tasks.get(taskIndex);
+        String key = task.label + "|" + task.dates.get(0);
+        failures.put(key, "tempo limite — página não concluiu o carregamento");
+        webView.stopLoading();
+        advance();
+    }
+
+    private void acquireScanWakeLock(int taskCount) {
+        releaseScanWakeLock();
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        scanWakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "WonderTravel:ActiveScan");
+        long safetyTimeout = Math.max(10L * 60L * 1000L,
+                taskCount * (TASK_HARD_TIMEOUT_MS + 5000L));
+        scanWakeLock.acquire(safetyTimeout);
+    }
+
+    private void releaseScanWakeLock() {
+        if (scanWakeLock != null && scanWakeLock.isHeld()) scanWakeLock.release();
+        scanWakeLock = null;
     }
 
     private String buildUrl(SearchConfig.Task task) {
@@ -231,6 +273,7 @@ public final class MonitorService extends Service {
     private void finishScan() {
         long elapsed = Math.max(0, SystemClock.elapsedRealtime() - scanStartedAt);
         scanning = false;
+        releaseScanWakeLock();
         taskIndex = -1;
         String checkedAt = new SimpleDateFormat("dd/MM/yyyy 'às' HH:mm",
                 new Locale("pt", "BR")).format(new Date());
@@ -377,6 +420,7 @@ public final class MonitorService extends Service {
     @Override
     public void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        releaseScanWakeLock();
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();
