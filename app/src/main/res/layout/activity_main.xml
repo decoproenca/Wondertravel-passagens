@@ -155,7 +155,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="7dp"
-                    android:text="Escolha início e fim. Período máximo: 3 dias."
+                    android:text="Escolha de 1 a 5 dias consecutivos. Para uma única data, selecione e confirme."
                     android:textColor="#8E849E"
                     android:textSize="11sp" />
 
