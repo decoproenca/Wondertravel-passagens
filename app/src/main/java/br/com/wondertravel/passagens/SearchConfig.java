@@ -110,9 +110,9 @@ public final class SearchConfig {
     }
 
     private static void validateDateRange(List<LocalDate> dates, String label) {
-        if (dates.size() > 3) {
+        if (dates.size() > 5) {
             throw new IllegalArgumentException("O período de " + label
-                    + " pode ter no máximo 3 dias.");
+                    + " pode ter no máximo 5 dias.");
         }
         for (int i = 1; i < dates.size(); i++) {
             if (!dates.get(i).equals(dates.get(i - 1).plusDays(1))) {
