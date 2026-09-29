@@ -338,9 +338,9 @@ public final class MainActivity extends Activity {
                 && !current.get(current.size() - 1).isBefore(initialStart)
                 ? current.get(current.size() - 1) : null;
 
-        String title = returnTrip ? "Escolha o período da volta"
-                : "Escolha o período da ida";
-        new DateRangeDialog(this, title, initialStart, initialEnd, minimum, 3,
+        String title = returnTrip ? "Escolha a data ou período da volta"
+                : "Escolha a data ou período da ida";
+        new DateRangeDialog(this, title, initialStart, initialEnd, minimum, 5,
                 (start, end) -> {
                     showDateRange(field, serializeRange(start, end));
                     if (!returnTrip) clearInvalidReturn(end);
