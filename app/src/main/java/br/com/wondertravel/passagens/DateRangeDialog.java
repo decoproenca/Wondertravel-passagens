@@ -87,7 +87,7 @@ final class DateRangeDialog {
         actions.setPadding(0, dp(12), 0, 0);
         Button cancel = actionButton("Cancelar", "#332B45");
         confirm = actionButton("Confirmar", "#7B4DFF");
-        confirm.setEnabled(end != null);
+        confirm.setEnabled(start != null);
         actions.addView(cancel);
         LinearLayout.LayoutParams confirmParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, dp(48));
@@ -105,8 +105,8 @@ final class DateRangeDialog {
         });
         cancel.setOnClickListener(v -> dialog.dismiss());
         confirm.setOnClickListener(v -> {
-            if (start != null && end != null) {
-                listener.onRangeSelected(start, end);
+            if (start != null) {
+                listener.onRangeSelected(start, end != null ? end : start);
                 dialog.dismiss();
             }
         });
@@ -137,7 +137,7 @@ final class DateRangeDialog {
                 .getDisplayName(TextStyle.FULL, new Locale("pt", "BR")))
                 + " " + visibleMonth.getYear());
         selectionStatus.setText(statusText());
-        confirm.setEnabled(start != null && end != null);
+        confirm.setEnabled(start != null);
         daysGrid.removeAllViews();
 
         String[] weekdays = {"SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"};
@@ -197,8 +197,8 @@ final class DateRangeDialog {
 
     private String statusText() {
         if (start == null) return "Toque na data inicial.";
-        if (end == null) return "Início: " + format(start)
-                + " • agora escolha o fim (até " + maxDays + " dias).";
+        if (end == null) return "Selecionado: " + format(start)
+                + " • confirme 1 dia ou escolha o fim (até " + maxDays + " dias).";
         return format(start) + " a " + format(end);
     }
 
