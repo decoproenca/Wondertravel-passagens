@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
     private EditText thousandCost;
     private TextView pointsNeeded;
     private TextView investmentValue;
+    private TextView latamSessionStatus;
     private View radarScreen;
     private View pointsScreen;
     private TextView radarTab;
@@ -164,6 +165,9 @@ public final class MainActivity extends Activity {
         bestMatchContainer = findViewById(R.id.bestMatchContainer);
         webView = findViewById(R.id.webView);
         scanButton = findViewById(R.id.testSearch);
+        latamSessionStatus = findViewById(R.id.latamSessionStatus);
+        findViewById(R.id.connectLatam).setOnClickListener(v ->
+                startActivity(new Intent(this, LatamLoginActivity.class)));
     }
 
     private void setupBottomNavigation() {
@@ -919,7 +923,19 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        updateLatamSessionStatus();
         if (!scanning) restoreLastScan();
+    }
+
+    private void updateLatamSessionStatus() {
+        if (latamSessionStatus == null) return;
+        boolean connected = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getBoolean("latam_session_connected", false);
+        latamSessionStatus.setText(connected
+                ? "LATAM conectada. Sessão pronta para o teste do motor Beta."
+                : "LATAM ainda não conectada. O login e o duplo fator serão feitos no site oficial.");
+        latamSessionStatus.setTextColor(Color.parseColor(
+                connected ? "#72D6A0" : "#91879F"));
     }
 
     @Override
