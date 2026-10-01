@@ -23,6 +23,7 @@ public final class LatamLoginActivity extends Activity {
     private WebView webView;
     private TextView status;
     private String searchUrl;
+    private boolean closing;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable sessionPoll = new Runnable() {
         @Override public void run() {
@@ -71,7 +72,7 @@ public final class LatamLoginActivity extends Activity {
         root.addView(actions);
 
         reload.setOnClickListener(v -> webView.loadUrl(searchUrl));
-        finish.setOnClickListener(v -> inspectSession(true));
+        finish.setOnClickListener(v -> completeConnection());
         setContentView(root);
     }
 
@@ -149,6 +150,37 @@ public final class LatamLoginActivity extends Activity {
                     CookieManager.getInstance().flush();
                     if (finishAfterInspection && resultPage) finish();
                 });
+    }
+
+    private void completeConnection() {
+        if (closing) return;
+        String url = webView.getUrl();
+        if (url == null || url.contains("auth.latamairlines.com")) {
+            status.setText("Conclua o login e o duplo fator antes de voltar.");
+            markConnected(false);
+            return;
+        }
+        closing = true;
+        markConnected(true);
+        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                .putString("latam_last_result_url", url)
+                .apply();
+        status.setText("Sessão LATAM conectada. Voltando ao Radar…");
+        webView.evaluateJavascript(
+                "(function(){return document.body ? document.body.innerText : '';})()",
+                encoded -> {
+                    String body = decodeJavascriptString(encoded);
+                    getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                            .putString("latam_last_result_text",
+                                    body.substring(0, Math.min(body.length(), 14000)))
+                            .apply();
+                    CookieManager.getInstance().flush();
+                    if (!isFinishing()) LatamLoginActivity.this.finish();
+                });
+        handler.postDelayed(() -> {
+            CookieManager.getInstance().flush();
+            if (!isFinishing()) LatamLoginActivity.this.finish();
+        }, 700);
     }
 
     private String decodeJavascriptString(String encoded) {
