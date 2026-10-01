@@ -95,6 +95,17 @@
                     android:textColor="#91879F"
                     android:textSize="11sp" />
 
+                <Button
+                    android:id="@+id/copyLatamDiagnostics"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:backgroundTint="#332B45"
+                    android:text="Copiar diagnóstico LATAM"
+                    android:textAllCaps="false"
+                    android:textColor="#D8D1E5"
+                    android:visibility="gone" />
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
