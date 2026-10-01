@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
@@ -21,6 +23,13 @@ public final class LatamLoginActivity extends Activity {
     private WebView webView;
     private TextView status;
     private String searchUrl;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable sessionPoll = new Runnable() {
+        @Override public void run() {
+            inspectSession(false);
+            handler.postDelayed(this, 2500);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle state) {
@@ -62,10 +71,7 @@ public final class LatamLoginActivity extends Activity {
         root.addView(actions);
 
         reload.setOnClickListener(v -> webView.loadUrl(searchUrl));
-        finish.setOnClickListener(v -> {
-            CookieManager.getInstance().flush();
-            finish();
-        });
+        finish.setOnClickListener(v -> inspectSession(true));
         setContentView(root);
     }
 
@@ -108,6 +114,50 @@ public final class LatamLoginActivity extends Activity {
                 }
             }
         });
+        handler.post(sessionPoll);
+    }
+
+    private void inspectSession(boolean finishAfterInspection) {
+        String url = webView.getUrl();
+        if (url == null || url.contains("auth.latamairlines.com")) {
+            markConnected(false);
+            if (finishAfterInspection) {
+                status.setText("Conclua o login e o duplo fator antes de voltar.");
+            }
+            return;
+        }
+        webView.evaluateJavascript(
+                "(function(){return document.body ? document.body.innerText : '';})()",
+                encoded -> {
+                    String body = decodeJavascriptString(encoded);
+                    boolean resultPage = url.contains("/oferta-voos")
+                            && (body.contains("Escolha um voo")
+                            || body.contains("Organizar por")
+                            || body.toLowerCase().contains("latam pass"));
+                    if (resultPage) {
+                        markConnected(true);
+                        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                                .putString("latam_last_result_text",
+                                        body.substring(0, Math.min(body.length(), 14000)))
+                                .putString("latam_last_result_url", url)
+                                .apply();
+                        boolean milesVisible = body.toLowerCase().contains("milhas");
+                        status.setText(milesVisible
+                                ? "Sessão conectada • página de milhas identificada."
+                                : "Sessão conectada • aguardando as tarifas em milhas aparecerem.");
+                    }
+                    CookieManager.getInstance().flush();
+                    if (finishAfterInspection && resultPage) finish();
+                });
+    }
+
+    private String decodeJavascriptString(String encoded) {
+        if (encoded == null || "null".equals(encoded)) return "";
+        try {
+            return new org.json.JSONTokener(encoded).nextValue().toString();
+        } catch (Exception ignored) {
+            return encoded;
+        }
     }
 
     private void markConnected(boolean connected) {
@@ -168,5 +218,12 @@ public final class LatamLoginActivity extends Activity {
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        if (webView != null) webView.destroy();
+        super.onDestroy();
     }
 }
