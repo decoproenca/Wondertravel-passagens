@@ -153,7 +153,7 @@ public final class LatamLoginActivity extends Activity {
     private Button button(String value) {
         Button button = new Button(this);
         button.setText(value);
-        button.setTextAllCaps(false);
+        button.setAllCaps(false);
         button.setTextColor(Color.WHITE);
         button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 Color.parseColor("#4B2B83")));
