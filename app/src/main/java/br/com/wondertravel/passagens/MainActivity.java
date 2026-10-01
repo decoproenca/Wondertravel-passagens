@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
@@ -68,6 +70,7 @@ public final class MainActivity extends Activity {
     private TextView pointsNeeded;
     private TextView investmentValue;
     private TextView latamSessionStatus;
+    private View copyLatamDiagnostics;
     private View radarScreen;
     private View pointsScreen;
     private TextView radarTab;
@@ -166,8 +169,10 @@ public final class MainActivity extends Activity {
         webView = findViewById(R.id.webView);
         scanButton = findViewById(R.id.testSearch);
         latamSessionStatus = findViewById(R.id.latamSessionStatus);
+        copyLatamDiagnostics = findViewById(R.id.copyLatamDiagnostics);
         findViewById(R.id.connectLatam).setOnClickListener(v ->
                 startActivity(new Intent(this, LatamLoginActivity.class)));
+        copyLatamDiagnostics.setOnClickListener(v -> copyLatamDiagnostics());
     }
 
     private void setupBottomNavigation() {
@@ -936,6 +941,24 @@ public final class MainActivity extends Activity {
                 : "LATAM ainda não conectada. O login e o duplo fator serão feitos no site oficial.");
         latamSessionStatus.setTextColor(Color.parseColor(
                 connected ? "#72D6A0" : "#91879F"));
+        String diagnostic = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getString("latam_last_result_text", "");
+        copyLatamDiagnostics.setVisibility(connected && !diagnostic.isEmpty()
+                ? View.VISIBLE : View.GONE);
+    }
+
+    private void copyLatamDiagnostics() {
+        String diagnostic = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getString("latam_last_result_text", "");
+        if (diagnostic.isEmpty()) {
+            Toast.makeText(this, "Abra novamente a LATAM e aguarde os resultados.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico LATAM", diagnostic));
+        Toast.makeText(this, "Diagnóstico copiado. Cole o texto na conversa.",
+                Toast.LENGTH_LONG).show();
     }
 
     @Override
