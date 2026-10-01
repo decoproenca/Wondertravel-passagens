@@ -80,6 +80,9 @@ public final class MainActivity extends Activity {
     private TextView pointsTab;
     private TextView status;
     private TextView resultsTitle;
+    private View resultsProgramTabs;
+    private TextView smilesResultsTab;
+    private TextView latamResultsTab;
     private LinearLayout resultsTable;
     private TextView bestMatchTitle;
     private LinearLayout bestMatchContainer;
@@ -93,6 +96,10 @@ public final class MainActivity extends Activity {
     private boolean includeLatam;
     private int currentHttpStatus;
     private String currentWebViewError;
+    private List<ResultRow> latestOutboundRows = new ArrayList<>();
+    private List<ResultRow> latestInboundRows = new ArrayList<>();
+    private String selectedResultsProvider = "Smiles";
+    private float resultsTouchStartX;
     private long scanStartedAt;
     private final Runnable scanTimer = new Runnable() {
         @Override public void run() {
@@ -168,6 +175,9 @@ public final class MainActivity extends Activity {
         pointsTab = findViewById(R.id.pointsTab);
         status = findViewById(R.id.status);
         resultsTitle = findViewById(R.id.resultsTitle);
+        resultsProgramTabs = findViewById(R.id.resultsProgramTabs);
+        smilesResultsTab = findViewById(R.id.smilesResultsTab);
+        latamResultsTab = findViewById(R.id.latamResultsTab);
         resultsTable = findViewById(R.id.resultsTable);
         bestMatchTitle = findViewById(R.id.bestMatchTitle);
         bestMatchContainer = findViewById(R.id.bestMatchContainer);
@@ -178,6 +188,19 @@ public final class MainActivity extends Activity {
         findViewById(R.id.connectLatam).setOnClickListener(v ->
                 startActivity(new Intent(this, LatamLoginActivity.class)));
         copyLatamDiagnostics.setOnClickListener(v -> copyLatamDiagnostics());
+        smilesResultsTab.setOnClickListener(v -> selectResultsProvider("Smiles"));
+        latamResultsTab.setOnClickListener(v -> selectResultsProvider("LATAM Pass"));
+        resultsTable.setOnTouchListener((v, event) -> {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                resultsTouchStartX = event.getX();
+            } else if (event.getAction() == android.view.MotionEvent.ACTION_UP) {
+                float delta = event.getX() - resultsTouchStartX;
+                if (Math.abs(delta) > dp(70)) {
+                    selectResultsProvider(delta < 0 ? "LATAM Pass" : "Smiles");
+                }
+            }
+            return false;
+        });
     }
 
     private void setupBottomNavigation() {
@@ -712,6 +735,7 @@ public final class MainActivity extends Activity {
     private void showSavedResults(String saved) {
         if (saved == null || saved.isEmpty()) {
             resultsTitle.setVisibility(View.GONE);
+            resultsProgramTabs.setVisibility(View.GONE);
             resultsTable.setVisibility(View.GONE);
             bestMatchTitle.setVisibility(View.GONE);
             bestMatchContainer.setVisibility(View.GONE);
@@ -776,19 +800,104 @@ public final class MainActivity extends Activity {
             else outbound.add(row);
         }
 
-        addResultSection("IDA", "São Paulo → " + configuredDestination, outbound);
-        addResultSection("VOLTA", configuredDestination + " → São Paulo", inbound);
+        latestOutboundRows = outbound;
+        latestInboundRows = inbound;
+        selectResultsProvider(selectedResultsProvider);
 
-        ResultRow bestOutbound = cheapest(outbound);
-        ResultRow bestInbound = cheapest(inbound);
-        addBestMatch("IDA", bestOutbound);
-        addBestMatch("VOLTA", bestInbound);
-        addTripTotal(bestOutbound, bestInbound);
+        List<ResultRow> smilesOutbound = filterProvider(outbound, "Smiles");
+        List<ResultRow> smilesInbound = filterProvider(inbound, "Smiles");
+        List<ResultRow> latamOutbound = filterProvider(outbound, "LATAM Pass");
+        List<ResultRow> latamInbound = filterProvider(inbound, "LATAM Pass");
+        addProgramMatch("SMILES", cheapest(smilesOutbound), cheapest(smilesInbound), true);
+        addProgramMatch("LATAM PASS", cheapest(latamOutbound), cheapest(latamInbound), false);
 
         resultsTitle.setVisibility(View.VISIBLE);
+        resultsProgramTabs.setVisibility(View.VISIBLE);
         resultsTable.setVisibility(View.VISIBLE);
         bestMatchTitle.setVisibility(View.VISIBLE);
         bestMatchContainer.setVisibility(View.VISIBLE);
+    }
+
+    private void selectResultsProvider(String provider) {
+        selectedResultsProvider = provider;
+        if (resultsTable == null) return;
+        int active = Color.parseColor("#FFFFFF");
+        int inactive = Color.parseColor("#80758F");
+        boolean smiles = "Smiles".equals(provider);
+        smilesResultsTab.setTextColor(smiles ? active : inactive);
+        latamResultsTab.setTextColor(smiles ? inactive : active);
+        smilesResultsTab.setTypeface(smilesResultsTab.getTypeface(), smiles
+                ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        latamResultsTab.setTypeface(latamResultsTab.getTypeface(), smiles
+                ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
+        smilesResultsTab.setBackgroundResource(smiles
+                ? R.drawable.bg_table_header : android.R.color.transparent);
+        latamResultsTab.setBackgroundResource(smiles
+                ? android.R.color.transparent : R.drawable.bg_table_header);
+
+        resultsTable.removeAllViews();
+        SearchConfig saved = SearchConfig.load(this);
+        String destinationCode = saved.destination.toUpperCase(Locale.ROOT);
+        addResultSection("IDA", "São Paulo → " + destinationCode,
+                filterProvider(latestOutboundRows, provider));
+        addResultSection("VOLTA", destinationCode + " → São Paulo",
+                filterProvider(latestInboundRows, provider));
+    }
+
+    private List<ResultRow> filterProvider(List<ResultRow> rows, String provider) {
+        List<ResultRow> filtered = new ArrayList<>();
+        for (ResultRow row : rows) {
+            if (provider.equals(row.provider)) filtered.add(row);
+        }
+        return filtered;
+    }
+
+    private void addProgramMatch(String provider, ResultRow outbound,
+                                 ResultRow inbound, boolean updateSmilesPoints) {
+        TextView card = new TextView(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, bestMatchContainer.getChildCount() == 0 ? 0 : dp(12), 0, 0);
+        card.setLayoutParams(params);
+        card.setBackgroundResource(R.drawable.bg_best_match);
+        card.setPadding(dp(16), dp(15), dp(16), dp(15));
+        card.setTextColor(Color.parseColor("#F4EFFA"));
+        card.setTextSize(13);
+
+        StringBuilder text = new StringBuilder(provider).append(" • MELHOR MATCH\n\n");
+        if (outbound == null) text.append("IDA: nenhuma tarifa identificada.\n");
+        else text.append("IDA: ").append(outbound.route).append(" • ")
+                .append(outbound.date).append(" • ").append(outbound.time)
+                .append(" • ").append(outbound.type).append("\n")
+                .append(outbound.milesText).append(" milhas por viajante\n");
+        text.append("\n");
+        if (inbound == null) text.append("VOLTA: nenhuma tarifa identificada.");
+        else text.append("VOLTA: ").append(inbound.route).append(" • ")
+                .append(inbound.date).append(" • ").append(inbound.time)
+                .append(" • ").append(inbound.type).append("\n")
+                .append(inbound.milesText).append(" milhas por viajante");
+
+        if (outbound != null && inbound != null) {
+            long individual = (long) outbound.milesValue + inbound.milesValue;
+            SearchConfig saved = SearchConfig.load(this);
+            int passengers = Math.max(1, saved.adults + saved.children);
+            long group = individual * passengers;
+            text.append("\n\nTOTAL INDIVIDUAL: ").append(format(individual)).append(" milhas")
+                    .append("\nTOTAL PARA ").append(passengers).append(" PASSAGEIRO")
+                    .append(passengers == 1 ? "" : "S").append(": ")
+                    .append(format(group)).append(" milhas");
+            if (updateSmilesPoints) {
+                android.content.SharedPreferences prefs = getSharedPreferences(
+                        SearchConfig.PREFS, MODE_PRIVATE);
+                long previous = prefs.getLong("last_match_group_miles", 0);
+                prefs.edit().putLong("last_match_group_miles", group).apply();
+                if (matchMiles != null && group != previous) {
+                    matchMiles.setText(String.valueOf(group));
+                }
+            }
+        }
+        card.setText(text.toString());
+        bestMatchContainer.addView(card);
     }
 
     private void addResultSection(String title, String subtitle, List<ResultRow> rows) {
@@ -825,7 +934,7 @@ public final class MainActivity extends Activity {
                     row.route.replace(" → ", "\n"),
                     compactDate(row.date),
                     row.time.replace("h", ":").replace(" → ", "\n"),
-                    row.provider + "\n" + row.type,
+                    row.type,
                     row.milesText
             }, false, i % 2 == 1);
         }
