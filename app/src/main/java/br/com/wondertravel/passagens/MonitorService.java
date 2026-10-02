@@ -23,6 +23,7 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONTokener;
 
+import java.net.URLEncoder;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
@@ -44,11 +45,16 @@ public final class MonitorService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, FlightParser.Result> results = new LinkedHashMap<>();
     private final Map<String, String> failures = new LinkedHashMap<>();
+    private final Map<String, FlightParser.Result> latamResults = new LinkedHashMap<>();
+    private final Map<String, String> latamFailures = new LinkedHashMap<>();
     private WebView webView;
     private SearchConfig config;
     private List<SearchConfig.Task> tasks;
     private int taskIndex = -1;
     private boolean scanning;
+    private boolean scanningLatam;
+    private boolean includeSmiles;
+    private boolean includeLatam;
     private int currentHttpStatus;
     private String currentWebViewError;
     private long scanStartedAt;
@@ -93,15 +99,20 @@ public final class MonitorService extends Service {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (scanning && url.contains("/mfe/emissao-passagem")) {
+                boolean expectedPage = scanningLatam
+                        ? url.contains("/oferta-voos")
+                        : url.contains("/mfe/emissao-passagem");
+                if (scanning && expectedPage) {
                     int expectedTaskIndex = taskIndex;
-                    handler.postDelayed(() -> inspect(0, expectedTaskIndex),
-                            SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
+                    boolean expectedLatam = scanningLatam;
+                    handler.postDelayed(() -> inspect(0, expectedTaskIndex, expectedLatam),
+                            scanningLatam ? 7000 : SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
                 }
             }
 
@@ -137,9 +148,22 @@ public final class MonitorService extends Service {
             return;
         }
         scanning = true;
-        acquireScanWakeLock(tasks.size());
+        includeSmiles = config.usesSmiles();
+        includeLatam = config.usesLatam();
+        if (includeLatam && !getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getBoolean("latam_session_connected", false)) {
+            scanning = false;
+            updateStatus("LATAM desconectada — abra o app para conectar.");
+            handler.postDelayed(nextScan, config.intervalMinutes * 60L * 1000L);
+            return;
+        }
+        scanningLatam = !includeSmiles;
+        int providerCount = (includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0);
+        acquireScanWakeLock(tasks.size() * providerCount);
         results.clear();
         failures.clear();
+        latamResults.clear();
+        latamFailures.clear();
         taskIndex = 0;
         scanStartedAt = SystemClock.elapsedRealtime();
         updateStatus("Verificando 1/" + tasks.size() + "...");
@@ -148,6 +172,13 @@ public final class MonitorService extends Service {
 
     private void loadTask() {
         if (taskIndex >= tasks.size()) {
+            if (!scanningLatam && includeLatam) {
+                scanningLatam = true;
+                taskIndex = 0;
+                updateStatus("Smiles concluído. Iniciando LATAM Pass…");
+                handler.postDelayed(this::loadTask, 1200);
+                return;
+            }
             finishScan();
             return;
         }
@@ -155,30 +186,36 @@ public final class MonitorService extends Service {
         currentHttpStatus = 0;
         currentWebViewError = null;
         long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
+        int offset = scanningLatam && includeSmiles ? tasks.size() : 0;
+        int total = tasks.size() * ((includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0));
+        int completed = offset + taskIndex;
         StringBuilder progress = new StringBuilder("Verificando ")
-                .append(taskIndex + 1).append("/").append(tasks.size())
+                .append(scanningLatam ? "LATAM Pass " : "Smiles ")
+                .append(completed + 1).append("/").append(total)
                 .append(": ").append(task.label).append(" • ")
                 .append(task.displayDate(task.dates.get(0))).append(" • ")
                 .append(formatDuration(elapsed));
-        int etaThreshold = Math.max(1, (int) Math.ceil(tasks.size() * 0.20));
-        if (taskIndex >= etaThreshold) {
-            long average = elapsed / taskIndex;
-            long remaining = average * (tasks.size() - taskIndex);
+        int etaThreshold = Math.max(1, (int) Math.ceil(total * 0.20));
+        if (completed >= etaThreshold) {
+            long average = elapsed / completed;
+            long remaining = average * (total - completed);
             progress.append(" • faltam ~").append(formatDuration(remaining));
         }
         updateStatus(progress.toString());
         int expectedTaskIndex = taskIndex;
-        handler.postDelayed(() -> handleTaskHardTimeout(expectedTaskIndex),
+        boolean expectedLatam = scanningLatam;
+        handler.postDelayed(() -> handleTaskHardTimeout(expectedTaskIndex, expectedLatam),
                 TASK_HARD_TIMEOUT_MS);
-        webView.loadUrl(buildUrl(task));
+        webView.loadUrl(scanningLatam ? buildLatamUrl(task) : buildUrl(task));
     }
 
-    private void handleTaskHardTimeout(int expectedTaskIndex) {
-        if (!scanning || expectedTaskIndex != taskIndex
+    private void handleTaskHardTimeout(int expectedTaskIndex, boolean expectedLatam) {
+        if (!scanning || expectedTaskIndex != taskIndex || expectedLatam != scanningLatam
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         SearchConfig.Task task = tasks.get(taskIndex);
         String key = task.label + "|" + task.dates.get(0);
-        failures.put(key, "tempo limite — página não concluiu o carregamento");
+        (scanningLatam ? latamFailures : failures).put(
+                key, "tempo limite — página não concluiu o carregamento");
         webView.stopLoading();
         advance();
     }
@@ -212,48 +249,85 @@ public final class MonitorService extends Service {
                 + "&novo-resultado-voos=true";
     }
 
-    private void inspect(int attempt, int expectedTaskIndex) {
-        if (!scanning || expectedTaskIndex != taskIndex
+    private String buildLatamUrl(SearchConfig.Task task) {
+        String departure = task.dates.get(0) + "T12:00:00.000Z";
+        return "https://www.latamairlines.com/br/pt/oferta-voos"
+                + "?origin=" + encodeUrl(task.from)
+                + "&outbound=" + encodeUrl(departure)
+                + "&destination=" + encodeUrl(task.to)
+                + "&adt=" + config.adults + "&chd=" + config.children
+                + "&inf=0&trip=OW&cabin=Economy&redemption=true&sort=RECOMMENDED"
+                + "&_wt=" + System.currentTimeMillis();
+    }
+
+    private String encodeUrl(String value) {
+        try {
+            return URLEncoder.encode(value, "UTF-8");
+        } catch (Exception ignored) {
+            return value;
+        }
+    }
+
+    private void inspect(int attempt, int expectedTaskIndex, boolean expectedLatam) {
+        if (!scanning || expectedTaskIndex != taskIndex || expectedLatam != scanningLatam
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
-                    if (!scanning || expectedTaskIndex != taskIndex) return;
+                    if (!scanning || expectedTaskIndex != taskIndex
+                            || expectedLatam != scanningLatam) return;
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
-                    FlightParser.Result parsed = FlightParser.parse(text, task);
+                    FlightParser.Result parsed = scanningLatam
+                            ? LatamParser.parse(text, task)
+                            : FlightParser.parse(text, task);
                     String key = task.label + "|" + task.dates.get(0);
+                    Map<String, FlightParser.Result> activeResults = scanningLatam
+                            ? latamResults : results;
+                    Map<String, String> activeFailures = scanningLatam
+                            ? latamFailures : failures;
                     if (parsed != null) {
-                        FlightParser.Result old = results.get(key);
+                        FlightParser.Result old = activeResults.get(key);
                         if (old == null || parsed.hasFlightDetails()
                                 || parsed.miles < old.miles) {
-                            results.put(key, parsed);
+                            activeResults.put(key, parsed);
                         }
                     }
-                    FlightParser.Result saved = results.get(key);
-                    boolean loading = SearchDiagnostics.isLoading(text);
+                    FlightParser.Result saved = activeResults.get(key);
+                    boolean loading = scanningLatam
+                            ? !LatamParser.hasFinishedLoading(text)
+                            : SearchDiagnostics.isLoading(text);
                     boolean noFare = SearchDiagnostics.isNoFare(text);
                     if (currentHttpStatus == 403 || currentHttpStatus == 429
                             || currentHttpStatus >= 500 || currentWebViewError != null) {
-                        failures.put(key, SearchDiagnostics.describe(
-                                text, currentHttpStatus, currentWebViewError));
+                        activeFailures.put(key, describeActiveFailure(text));
                         advance();
                     } else if (saved != null && saved.hasFlightDetails() && !loading) {
                         advance();
                     } else if (saved != null && attempt >= 8 && !loading) {
                         advance();
                     } else if (noFare && !loading) {
-                        failures.put(key, "sem tarifa disponível");
+                        activeFailures.put(key, "sem tarifa disponível");
                         advance();
                     } else if (attempt >= SearchDiagnostics.MAX_INSPECTION_ATTEMPT) {
-                        failures.put(key, SearchDiagnostics.describe(
-                                text, currentHttpStatus, currentWebViewError));
+                        activeFailures.put(key, describeActiveFailure(text));
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(attempt + 1, expectedTaskIndex),
+                        handler.postDelayed(() -> inspect(
+                                        attempt + 1, expectedTaskIndex, expectedLatam),
                                 SearchDiagnostics.INSPECTION_INTERVAL_MS);
                     }
                 });
+    }
+
+    private String describeActiveFailure(String text) {
+        if (!scanningLatam) {
+            return SearchDiagnostics.describe(text, currentHttpStatus, currentWebViewError);
+        }
+        if (currentHttpStatus > 0) return "HTTP " + currentHttpStatus + " retornado pela LATAM";
+        if (currentWebViewError != null) return currentWebViewError;
+        if (SearchDiagnostics.isNoFare(text)) return "sem tarifa disponível";
+        return "tempo limite — resposta da LATAM não reconhecida";
     }
 
     private String decode(String encoded) {
@@ -280,15 +354,54 @@ public final class MonitorService extends Service {
         StringBuilder summary = new StringBuilder("Varredura automática em ")
                 .append(checkedAt).append(".\n");
         FlightParser.Result lowest = null;
+        if (includeSmiles) {
+            lowest = appendProviderSummary(summary, "Smiles", results, failures, lowest);
+        }
+        if (includeLatam) {
+            lowest = appendProviderSummary(
+                    summary, "LATAM Pass", latamResults, latamFailures, lowest);
+        }
 
+        if (lowest == null) {
+            summary.append("Nenhuma tarifa foi identificada.");
+            updateStatus("Monitor ativo — nenhuma tarifa lida.");
+        } else {
+            summary.append("Menor valor: ").append(format(lowest.miles)).append(" milhas — ")
+                    .append(lowest.miles < config.targetMiles ? "OPORTUNIDADE!" :
+                            "acima de " + format(config.targetMiles) + ".");
+            updateStatus("Monitor ativo — menor valor: " + format(lowest.miles)
+                    + " milhas. Próxima em " + config.intervalMinutes + " min.");
+        }
+        int totalQueries = tasks.size()
+                * ((includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0));
+        long average = totalQueries == 0 ? 0 : elapsed / totalQueries;
+        summary.append("\nTempo da varredura: ").append(totalQueries).append("/")
+                .append(totalQueries).append(" concluídas • ")
+                .append(formatDuration(elapsed)).append(" • média ")
+                .append(formatDuration(average)).append(" por consulta.");
+
+        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                .putString("last_scan", summary.toString().trim())
+                .putLong("last_scan_at", System.currentTimeMillis())
+                .apply();
+        webView.loadUrl("about:blank");
+        handler.postDelayed(nextScan, config.intervalMinutes * 60L * 1000L);
+    }
+
+    private FlightParser.Result appendProviderSummary(
+            StringBuilder summary, String provider,
+            Map<String, FlightParser.Result> providerResults,
+            Map<String, String> providerFailures,
+            FlightParser.Result lowest) {
         for (SearchConfig.Task task : tasks) {
             for (LocalDate date : task.dates) {
                 String key = task.label + "|" + date;
-                FlightParser.Result result = results.get(key);
-                summary.append("\n").append(task.label).append("\n")
+                FlightParser.Result result = providerResults.get(key);
+                summary.append("\nPrograma: ").append(provider)
+                        .append("\n").append(task.label).append("\n")
                         .append(task.displayDate(date));
                 if (result == null) {
-                    String failure = failures.get(key);
+                    String failure = providerFailures.get(key);
                     if ("sem tarifa disponível".equals(failure)) {
                         summary.append(" • sem tarifa disponível\n");
                     } else {
@@ -307,39 +420,17 @@ public final class MonitorService extends Service {
                     summary.append("\n").append(format(result.miles))
                             .append(" milhas por viajante\n");
                     if (lowest == null || result.miles < lowest.miles) lowest = result;
-                    if (result.miles < config.targetMiles) showOffer(result);
+                    if (result.miles < config.targetMiles) showOffer(provider, result);
                 }
             }
         }
-
-        if (lowest == null) {
-            summary.append("Nenhuma tarifa foi identificada.");
-            updateStatus("Monitor ativo — nenhuma tarifa lida.");
-        } else {
-            summary.append("Menor valor: ").append(format(lowest.miles)).append(" milhas — ")
-                    .append(lowest.miles < config.targetMiles ? "OPORTUNIDADE!" :
-                            "acima de " + format(config.targetMiles) + ".");
-            updateStatus("Monitor ativo — menor valor: " + format(lowest.miles)
-                    + " milhas. Próxima em " + config.intervalMinutes + " min.");
-        }
-        long average = tasks.isEmpty() ? 0 : elapsed / tasks.size();
-        summary.append("\nTempo da varredura: ").append(tasks.size()).append("/")
-                .append(tasks.size()).append(" concluídas • ")
-                .append(formatDuration(elapsed)).append(" • média ")
-                .append(formatDuration(average)).append(" por consulta.");
-
-        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
-                .putString("last_scan", summary.toString().trim())
-                .putLong("last_scan_at", System.currentTimeMillis())
-                .apply();
-        webView.loadUrl("about:blank");
-        handler.postDelayed(nextScan, config.intervalMinutes * 60L * 1000L);
+        return lowest;
     }
 
     private final Runnable nextScan = this::startScan;
 
-    private void showOffer(FlightParser.Result result) {
-        String alertKey = "alert_" + (result.route + "|" + result.date).hashCode();
+    private void showOffer(String provider, FlightParser.Result result) {
+        String alertKey = "alert_" + (provider + "|" + result.route + "|" + result.date).hashCode();
         int previous = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
                 .getInt(alertKey, -1);
         if (previous == result.miles) return;
@@ -348,7 +439,7 @@ public final class MonitorService extends Service {
 
         Notification notification = new Notification.Builder(this, ALERT_CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("Passagem abaixo de " + format(config.targetMiles))
+                .setContentTitle(provider + " abaixo de " + format(config.targetMiles))
                 .setContentText(result.route + " • " + result.displayDate()
                         + (result.hasFlightDetails()
                         ? " • " + result.departureTime + " → " + result.arrivalTime
@@ -357,7 +448,7 @@ public final class MonitorService extends Service {
                 .setAutoCancel(true)
                 .build();
         ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-                .notify((result.route + result.date + result.miles).hashCode(), notification);
+                .notify((provider + result.route + result.date + result.miles).hashCode(), notification);
     }
 
     private String format(int value) {
