@@ -32,6 +32,7 @@ import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -61,6 +62,7 @@ public final class MainActivity extends Activity {
 
     private AutoCompleteTextView originMode;
     private AutoCompleteTextView destination;
+    private Spinner searchProgram;
     private EditText outboundDates;
     private EditText returnDates;
     private EditText adults;
@@ -93,6 +95,7 @@ public final class MainActivity extends Activity {
     private int taskIndex = -1;
     private boolean scanning;
     private boolean scanningLatam;
+    private boolean includeSmiles;
     private boolean includeLatam;
     private int currentHttpStatus;
     private String currentWebViewError;
@@ -118,6 +121,7 @@ public final class MainActivity extends Activity {
         bindViews();
         setupBottomNavigation();
         setupPointsCalculator();
+        setupSearchProgram();
         setupAirportFields();
         setupDateRangeFields();
         loadForm(SearchConfig.load(this));
@@ -138,6 +142,10 @@ public final class MainActivity extends Activity {
         findViewById(R.id.startMonitor).setOnClickListener(v -> {
             SearchConfig saved = saveForm();
             if (saved == null) return;
+            if (saved.usesLatam() && !isLatamConnected()) {
+                status.setText("Conecte a LATAM Pass antes de ativar este motor.");
+                return;
+            }
             Intent service = new Intent(this, MonitorService.class);
             service.setAction(MonitorService.ACTION_RELOAD);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service);
@@ -158,6 +166,7 @@ public final class MainActivity extends Activity {
     private void bindViews() {
         originMode = findViewById(R.id.originMode);
         destination = findViewById(R.id.destination);
+        searchProgram = findViewById(R.id.searchProgram);
         outboundDates = findViewById(R.id.outboundDates);
         returnDates = findViewById(R.id.returnDates);
         adults = findViewById(R.id.adults);
@@ -303,6 +312,17 @@ public final class MainActivity extends Activity {
         destination.setOnClickListener(v -> destination.showDropDown());
     }
 
+    private void setupSearchProgram() {
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                R.layout.spinner_item, new String[]{
+                SearchConfig.PROGRAM_BOTH,
+                SearchConfig.PROGRAM_SMILES,
+                SearchConfig.PROGRAM_LATAM
+        });
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+        searchProgram.setAdapter(adapter);
+    }
+
     private void setupDateRangeFields() {
         outboundDates.setOnClickListener(v ->
                 openDateRangePicker(outboundDates, false));
@@ -321,6 +341,9 @@ public final class MainActivity extends Activity {
         children.setText(String.valueOf(c.children));
         targetMiles.setText(String.valueOf(c.targetMiles));
         intervalMinutes.setText(String.valueOf(c.intervalMinutes));
+        if (SearchConfig.PROGRAM_SMILES.equals(c.searchProgram)) searchProgram.setSelection(1);
+        else if (SearchConfig.PROGRAM_LATAM.equals(c.searchProgram)) searchProgram.setSelection(2);
+        else searchProgram.setSelection(0);
     }
 
     private SearchConfig saveForm() {
@@ -333,7 +356,8 @@ public final class MainActivity extends Activity {
                     number(adults, "adultos"),
                     number(children, "crianças"),
                     number(targetMiles, "limite de milhas"),
-                    number(intervalMinutes, "intervalo")
+                    number(intervalMinutes, "intervalo"),
+                    searchProgram.getSelectedItem().toString()
             );
             candidate.createTasks();
             candidate.save(this);
@@ -451,9 +475,14 @@ public final class MainActivity extends Activity {
             return;
         }
         scanning = true;
-        scanningLatam = false;
-        includeLatam = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
-                .getBoolean("latam_session_connected", false);
+        includeSmiles = config.usesSmiles();
+        includeLatam = config.usesLatam();
+        if (includeLatam && !isLatamConnected()) {
+            scanning = false;
+            status.setText("Conecte a LATAM Pass antes de iniciar a varredura.");
+            return;
+        }
+        scanningLatam = !includeSmiles;
         results.clear();
         failures.clear();
         latamResults.clear();
@@ -490,8 +519,9 @@ public final class MainActivity extends Activity {
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         SearchConfig.Task task = tasks.get(taskIndex);
         long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
-        int providerOffset = scanningLatam ? tasks.size() : 0;
-        int total = tasks.size() * (includeLatam ? 2 : 1);
+        int providerOffset = scanningLatam && includeSmiles ? tasks.size() : 0;
+        int providerCount = (includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0);
+        int total = tasks.size() * providerCount;
         int completed = providerOffset + taskIndex;
         String provider = scanningLatam ? "LATAM Pass" : "Smiles";
         StringBuilder progress = new StringBuilder("Verificando ").append(provider).append(" • ")
@@ -563,7 +593,8 @@ public final class MainActivity extends Activity {
                         : url.contains("/mfe/emissao-passagem");
                 if (scanning && expectedPage) {
                     int expectedTaskIndex = taskIndex;
-                    handler.postDelayed(() -> inspect(0, expectedTaskIndex),
+                    boolean expectedLatam = scanningLatam;
+                    handler.postDelayed(() -> inspect(0, expectedTaskIndex, expectedLatam),
                             scanningLatam ? 7000 : SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
                 } else if (!scanning) {
                     restoreLastScan();
@@ -591,13 +622,14 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void inspect(int attempt, int expectedTaskIndex) {
-        if (!scanning || expectedTaskIndex != taskIndex
+    private void inspect(int attempt, int expectedTaskIndex, boolean expectedLatam) {
+        if (!scanning || expectedTaskIndex != taskIndex || expectedLatam != scanningLatam
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
-                    if (!scanning || expectedTaskIndex != taskIndex) return;
+                    if (!scanning || expectedTaskIndex != taskIndex
+                            || expectedLatam != scanningLatam) return;
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
                     FlightParser.Result parsed = scanningLatam
@@ -635,7 +667,8 @@ public final class MainActivity extends Activity {
                         activeFailures.put(key, describeActiveFailure(text));
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(attempt + 1, expectedTaskIndex),
+                        handler.postDelayed(() -> inspect(
+                                        attempt + 1, expectedTaskIndex, expectedLatam),
                                 SearchDiagnostics.INSPECTION_INTERVAL_MS);
                     }
                 });
@@ -675,8 +708,10 @@ public final class MainActivity extends Activity {
                 new Locale("pt", "BR")).format(new Date());
         StringBuilder summary = new StringBuilder("Varredura concluída em ")
                 .append(checkedAt).append(".\n");
-        FlightParser.Result lowest = appendProviderSummary(
-                summary, "Smiles", results, failures, null);
+        FlightParser.Result lowest = null;
+        if (includeSmiles) {
+            lowest = appendProviderSummary(summary, "Smiles", results, failures, null);
+        }
         if (includeLatam) {
             lowest = appendProviderSummary(
                     summary, "LATAM Pass", latamResults, latamFailures, lowest);
@@ -685,7 +720,8 @@ public final class MainActivity extends Activity {
         else summary.append("Menor valor: ").append(format(lowest.miles)).append(" milhas — ")
                 .append(lowest.miles < config.targetMiles ? "OPORTUNIDADE!" :
                         "acima de " + format(config.targetMiles) + ".");
-        int totalQueries = tasks.size() * (includeLatam ? 2 : 1);
+        int totalQueries = tasks.size()
+                * ((includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0));
         long average = totalQueries == 0 ? 0 : elapsed / totalQueries;
         summary.append("\nTempo da varredura: ").append(totalQueries).append("/")
                 .append(totalQueries).append(" concluídas • ")
@@ -806,23 +842,40 @@ public final class MainActivity extends Activity {
 
         latestOutboundRows = outbound;
         latestInboundRows = inbound;
+        boolean hasSmiles = !filterProvider(outbound, "Smiles").isEmpty()
+                || !filterProvider(inbound, "Smiles").isEmpty();
+        boolean hasLatam = !filterProvider(outbound, "LATAM Pass").isEmpty()
+                || !filterProvider(inbound, "LATAM Pass").isEmpty();
+        if ("Smiles".equals(selectedResultsProvider) && !hasSmiles && hasLatam) {
+            selectedResultsProvider = "LATAM Pass";
+        } else if ("LATAM Pass".equals(selectedResultsProvider) && !hasLatam && hasSmiles) {
+            selectedResultsProvider = "Smiles";
+        }
         selectResultsProvider(selectedResultsProvider);
 
         List<ResultRow> smilesOutbound = filterProvider(outbound, "Smiles");
         List<ResultRow> smilesInbound = filterProvider(inbound, "Smiles");
         List<ResultRow> latamOutbound = filterProvider(outbound, "LATAM Pass");
         List<ResultRow> latamInbound = filterProvider(inbound, "LATAM Pass");
-        addProgramMatch("SMILES", cheapest(smilesOutbound), cheapest(smilesInbound), true);
-        addProgramMatch("LATAM PASS", cheapest(latamOutbound), cheapest(latamInbound), false);
+        if (hasSmiles) {
+            addProgramMatch("SMILES", cheapest(smilesOutbound), cheapest(smilesInbound), true);
+        }
+        if (hasLatam) {
+            addProgramMatch("LATAM PASS", cheapest(latamOutbound), cheapest(latamInbound), false);
+        }
 
         resultsTitle.setVisibility(View.VISIBLE);
-        resultsProgramTabs.setVisibility(View.VISIBLE);
+        resultsProgramTabs.setVisibility(hasSmiles && hasLatam ? View.VISIBLE : View.GONE);
         resultsTable.setVisibility(View.VISIBLE);
         bestMatchTitle.setVisibility(View.VISIBLE);
         bestMatchContainer.setVisibility(View.VISIBLE);
     }
 
     private void selectResultsProvider(String provider) {
+        boolean requestedAvailable = !filterProvider(latestOutboundRows, provider).isEmpty()
+                || !filterProvider(latestInboundRows, provider).isEmpty();
+        boolean anyAvailable = !latestOutboundRows.isEmpty() || !latestInboundRows.isEmpty();
+        if (anyAvailable && !requestedAvailable) return;
         selectedResultsProvider = provider;
         if (resultsTable == null) return;
         int active = Color.parseColor("#FFFFFF");
@@ -1128,8 +1181,7 @@ public final class MainActivity extends Activity {
 
     private void updateLatamSessionStatus() {
         if (latamSessionStatus == null) return;
-        boolean connected = getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
-                .getBoolean("latam_session_connected", false);
+        boolean connected = isLatamConnected();
         latamSessionStatus.setText(connected
                 ? "LATAM conectada. Sessão pronta para o teste do motor Beta."
                 : "LATAM ainda não conectada. O login e o duplo fator serão feitos no site oficial.");
@@ -1139,6 +1191,11 @@ public final class MainActivity extends Activity {
                 .getString("latam_last_result_text", "");
         copyLatamDiagnostics.setVisibility(connected && !diagnostic.isEmpty()
                 ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isLatamConnected() {
+        return getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE)
+                .getBoolean("latam_session_connected", false);
     }
 
     private void copyLatamDiagnostics() {
