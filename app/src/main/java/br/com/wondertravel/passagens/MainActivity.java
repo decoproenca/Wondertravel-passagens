@@ -185,8 +185,11 @@ public final class MainActivity extends Activity {
         scanButton = findViewById(R.id.testSearch);
         latamSessionStatus = findViewById(R.id.latamSessionStatus);
         copyLatamDiagnostics = findViewById(R.id.copyLatamDiagnostics);
-        findViewById(R.id.connectLatam).setOnClickListener(v ->
-                startActivity(new Intent(this, LatamLoginActivity.class)));
+        findViewById(R.id.connectLatam).setOnClickListener(v -> {
+            SearchConfig current = saveForm();
+            if (current == null) return;
+            startActivity(new Intent(this, LatamLoginActivity.class));
+        });
         copyLatamDiagnostics.setOnClickListener(v -> copyLatamDiagnostics());
         smilesResultsTab.setOnClickListener(v -> selectResultsProvider("Smiles"));
         latamResultsTab.setOnClickListener(v -> selectResultsProvider("LATAM Pass"));
@@ -544,6 +547,7 @@ public final class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
