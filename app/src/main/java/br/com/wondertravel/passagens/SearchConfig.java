@@ -14,6 +14,9 @@ public final class SearchConfig {
     static final String PREFS = "monitor";
     static final String DEFAULT_OUTBOUND = "09/10/2026, 10/10/2026, 11/10/2026";
     static final String DEFAULT_RETURN = "17/10/2026, 18/10/2026";
+    static final String PROGRAM_BOTH = "Smiles + LATAM Pass";
+    static final String PROGRAM_SMILES = "Somente Smiles";
+    static final String PROGRAM_LATAM = "Somente LATAM Pass";
 
     final String originMode;
     final String destination;
@@ -23,10 +26,11 @@ public final class SearchConfig {
     final int children;
     final int targetMiles;
     final int intervalMinutes;
+    final String searchProgram;
 
     SearchConfig(String originMode, String destination, String outboundDates,
                  String returnDates, int adults, int children,
-                 int targetMiles, int intervalMinutes) {
+                 int targetMiles, int intervalMinutes, String searchProgram) {
         this.originMode = originMode;
         this.destination = AirportCatalog.extractCode(destination);
         this.outboundDates = outboundDates.trim();
@@ -35,6 +39,7 @@ public final class SearchConfig {
         this.children = children;
         this.targetMiles = targetMiles;
         this.intervalMinutes = intervalMinutes;
+        this.searchProgram = normalizeProgram(searchProgram);
     }
 
     static SearchConfig load(Context context) {
@@ -47,7 +52,8 @@ public final class SearchConfig {
                 p.getInt("adults", 2),
                 p.getInt("children", 2),
                 p.getInt("target_miles", 31000),
-                p.getInt("interval_minutes", 60)
+                p.getInt("interval_minutes", 60),
+                p.getString("search_program", PROGRAM_BOTH)
         );
     }
 
@@ -61,7 +67,21 @@ public final class SearchConfig {
                 .putInt("children", children)
                 .putInt("target_miles", targetMiles)
                 .putInt("interval_minutes", intervalMinutes)
+                .putString("search_program", searchProgram)
                 .apply();
+    }
+
+    boolean usesSmiles() {
+        return !PROGRAM_LATAM.equals(searchProgram);
+    }
+
+    boolean usesLatam() {
+        return !PROGRAM_SMILES.equals(searchProgram);
+    }
+
+    private static String normalizeProgram(String value) {
+        if (PROGRAM_SMILES.equals(value) || PROGRAM_LATAM.equals(value)) return value;
+        return PROGRAM_BOTH;
     }
 
     List<Task> createTasks() {
