@@ -17,13 +17,16 @@ import android.widget.TextView;
 
 import java.net.URLEncoder;
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.List;
 
 public final class LatamLoginActivity extends Activity {
     private WebView webView;
     private TextView status;
     private String searchUrl;
+    private LocalDate expectedDate;
     private boolean closing;
+    private boolean dateRetryAttempted;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable sessionPoll = new Runnable() {
         @Override public void run() {
@@ -40,6 +43,7 @@ public final class LatamLoginActivity extends Activity {
         buildScreen();
         configureWebView();
         searchUrl = buildSearchUrl();
+        status.setText("Abrindo a busca LATAM para " + displayDate(expectedDate) + "…");
         webView.loadUrl(searchUrl);
     }
 
@@ -71,7 +75,11 @@ public final class LatamLoginActivity extends Activity {
         actions.addView(finish, finishParams);
         root.addView(actions);
 
-        reload.setOnClickListener(v -> webView.loadUrl(searchUrl));
+        reload.setOnClickListener(v -> {
+            dateRetryAttempted = false;
+            webView.clearCache(false);
+            webView.loadUrl(searchUrl);
+        });
         finish.setOnClickListener(v -> completeConnection());
         setContentView(root);
     }
@@ -81,6 +89,7 @@ public final class LatamLoginActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
@@ -108,8 +117,7 @@ public final class LatamLoginActivity extends Activity {
                             body -> {
                                 if (body != null && body.length() > 20
                                         && !url.contains("/login")) {
-                                    markConnected(true);
-                                    status.setText("Sessão conectada. Quando os voos aparecerem, toque em ‘Concluir e voltar’. ");
+                                    status.setText("Página carregada. Confirmando rota e data…");
                                 }
                             });
                 }
@@ -136,6 +144,20 @@ public final class LatamLoginActivity extends Activity {
                             || body.contains("Organizar por")
                             || body.toLowerCase().contains("latam pass"));
                     if (resultPage) {
+                        if (!bodyMatchesExpectedDate(body)) {
+                            if (!dateRetryAttempted) {
+                                dateRetryAttempted = true;
+                                status.setText("A LATAM abriu outra data. Corrigindo para "
+                                        + displayDate(expectedDate) + "…");
+                                webView.clearCache(false);
+                                webView.loadUrl(searchUrl);
+                            } else {
+                                status.setText("A LATAM não confirmou a data "
+                                        + displayDate(expectedDate)
+                                        + ". Toque em ‘Reabrir busca’.");
+                            }
+                            return;
+                        }
                         markConnected(true);
                         getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
                                 .putString("latam_last_result_text",
@@ -160,27 +182,30 @@ public final class LatamLoginActivity extends Activity {
             markConnected(false);
             return;
         }
-        closing = true;
-        markConnected(true);
-        getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
-                .putString("latam_last_result_url", url)
-                .apply();
-        status.setText("Sessão LATAM conectada. Voltando ao Radar…");
+        status.setText("Confirmando a data selecionada…");
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
                     String body = decodeJavascriptString(encoded);
+                    if (!bodyMatchesExpectedDate(body)) {
+                        status.setText("A página aberta não corresponde a "
+                                + displayDate(expectedDate) + ". Reabrindo a busca correta…");
+                        dateRetryAttempted = true;
+                        webView.clearCache(false);
+                        webView.loadUrl(searchUrl);
+                        return;
+                    }
+                    closing = true;
+                    markConnected(true);
                     getSharedPreferences(SearchConfig.PREFS, MODE_PRIVATE).edit()
+                            .putString("latam_last_result_url", url)
                             .putString("latam_last_result_text",
                                     body.substring(0, Math.min(body.length(), 14000)))
                             .apply();
+                    status.setText("Sessão LATAM conectada. Voltando ao Radar…");
                     CookieManager.getInstance().flush();
                     if (!isFinishing()) LatamLoginActivity.this.finish();
                 });
-        handler.postDelayed(() -> {
-            CookieManager.getInstance().flush();
-            if (!isFinishing()) LatamLoginActivity.this.finish();
-        }, 700);
     }
 
     private String decodeJavascriptString(String encoded) {
@@ -203,6 +228,7 @@ public final class LatamLoginActivity extends Activity {
         SearchConfig config = SearchConfig.load(this);
         List<LocalDate> dates = SearchConfig.parseDates(config.outboundDates);
         LocalDate date = dates.isEmpty() ? LocalDate.now().plusDays(1) : dates.get(0);
+        expectedDate = date;
         String origin = AirportCatalog.isSaoPauloAll(config.originMode)
                 ? "SAO" : AirportCatalog.extractCode(config.originMode);
         String departure = date + "T12:00:00.000Z";
@@ -212,7 +238,26 @@ public final class LatamLoginActivity extends Activity {
                 + "&destination=" + encode(config.destination)
                 + "&adt=" + config.adults
                 + "&chd=" + config.children
-                + "&inf=0&trip=OW&cabin=Economy&redemption=true&sort=RECOMMENDED";
+                + "&inf=0&trip=OW&cabin=Economy&redemption=true&sort=RECOMMENDED"
+                + "&_wt=" + System.currentTimeMillis();
+    }
+
+    private boolean bodyMatchesExpectedDate(String body) {
+        if (expectedDate == null || body == null) return false;
+        String numeric = String.format(Locale.ROOT, "%02d/%02d",
+                expectedDate.getDayOfMonth(), expectedDate.getMonthValue());
+        String[] months = {"jan", "fev", "mar", "abr", "mai", "jun",
+                "jul", "ago", "set", "out", "nov", "dez"};
+        String textual = String.format(Locale.ROOT, "%02d %s",
+                expectedDate.getDayOfMonth(), months[expectedDate.getMonthValue() - 1]);
+        String normalized = body.toLowerCase(Locale.ROOT);
+        return normalized.contains(numeric) || normalized.contains(textual);
+    }
+
+    private String displayDate(LocalDate date) {
+        if (date == null) return "a data selecionada";
+        return String.format(Locale.getDefault(), "%02d/%02d/%04d",
+                date.getDayOfMonth(), date.getMonthValue(), date.getYear());
     }
 
     private String encode(String value) {
