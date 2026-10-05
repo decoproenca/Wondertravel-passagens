@@ -47,12 +47,15 @@ public final class MonitorService extends Service {
     private final Map<String, String> failures = new LinkedHashMap<>();
     private final Map<String, FlightParser.Result> latamResults = new LinkedHashMap<>();
     private final Map<String, String> latamFailures = new LinkedHashMap<>();
+    private final Map<String, FlightParser.Result> latamCashResults = new LinkedHashMap<>();
+    private final Map<String, String> latamCashFailures = new LinkedHashMap<>();
     private WebView webView;
     private SearchConfig config;
     private List<SearchConfig.Task> tasks;
     private int taskIndex = -1;
     private boolean scanning;
     private boolean scanningLatam;
+    private boolean scanningLatamCash;
     private boolean includeSmiles;
     private boolean includeLatam;
     private int currentHttpStatus;
@@ -111,7 +114,9 @@ public final class MonitorService extends Service {
                 if (scanning && expectedPage) {
                     int expectedTaskIndex = taskIndex;
                     boolean expectedLatam = scanningLatam;
-                    handler.postDelayed(() -> inspect(0, expectedTaskIndex, expectedLatam),
+                    boolean expectedCash = scanningLatamCash;
+                    handler.postDelayed(() -> inspect(
+                                    0, expectedTaskIndex, expectedLatam, expectedCash),
                             scanningLatam ? 7000 : SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
                 }
             }
@@ -158,12 +163,15 @@ public final class MonitorService extends Service {
             return;
         }
         scanningLatam = !includeSmiles;
-        int providerCount = (includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0);
+        scanningLatamCash = false;
+        int providerCount = (includeSmiles ? 1 : 0) + (includeLatam ? 2 : 0);
         acquireScanWakeLock(tasks.size() * providerCount);
         results.clear();
         failures.clear();
         latamResults.clear();
         latamFailures.clear();
+        latamCashResults.clear();
+        latamCashFailures.clear();
         taskIndex = 0;
         scanStartedAt = SystemClock.elapsedRealtime();
         updateStatus("Verificando 1/" + tasks.size() + "...");
@@ -174,8 +182,16 @@ public final class MonitorService extends Service {
         if (taskIndex >= tasks.size()) {
             if (!scanningLatam && includeLatam) {
                 scanningLatam = true;
+                scanningLatamCash = false;
                 taskIndex = 0;
                 updateStatus("Smiles concluído. Iniciando LATAM Pass…");
+                handler.postDelayed(this::loadTask, 1200);
+                return;
+            }
+            if (scanningLatam && !scanningLatamCash) {
+                scanningLatamCash = true;
+                taskIndex = 0;
+                updateStatus("LATAM Pass concluído. Buscando preços em dinheiro…");
                 handler.postDelayed(this::loadTask, 1200);
                 return;
             }
@@ -186,11 +202,14 @@ public final class MonitorService extends Service {
         currentHttpStatus = 0;
         currentWebViewError = null;
         long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
-        int offset = scanningLatam && includeSmiles ? tasks.size() : 0;
-        int total = tasks.size() * ((includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0));
+        int offset = !scanningLatam ? 0 : (includeSmiles ? tasks.size() : 0)
+                + (scanningLatamCash ? tasks.size() : 0);
+        int total = tasks.size() * ((includeSmiles ? 1 : 0) + (includeLatam ? 2 : 0));
         int completed = offset + taskIndex;
         StringBuilder progress = new StringBuilder("Verificando ")
-                .append(scanningLatam ? "LATAM Pass " : "Smiles ")
+                .append(scanningLatam
+                        ? (scanningLatamCash ? "LATAM em dinheiro " : "LATAM Pass ")
+                        : "Smiles ")
                 .append(completed + 1).append("/").append(total)
                 .append(": ").append(task.label).append(" • ")
                 .append(task.displayDate(task.dates.get(0))).append(" • ")
@@ -204,17 +223,23 @@ public final class MonitorService extends Service {
         updateStatus(progress.toString());
         int expectedTaskIndex = taskIndex;
         boolean expectedLatam = scanningLatam;
-        handler.postDelayed(() -> handleTaskHardTimeout(expectedTaskIndex, expectedLatam),
+        boolean expectedCash = scanningLatamCash;
+        handler.postDelayed(() -> handleTaskHardTimeout(
+                        expectedTaskIndex, expectedLatam, expectedCash),
                 TASK_HARD_TIMEOUT_MS);
-        webView.loadUrl(scanningLatam ? buildLatamUrl(task) : buildUrl(task));
+        webView.loadUrl(scanningLatam
+                ? buildLatamUrl(task, scanningLatamCash) : buildUrl(task));
     }
 
-    private void handleTaskHardTimeout(int expectedTaskIndex, boolean expectedLatam) {
+    private void handleTaskHardTimeout(int expectedTaskIndex,
+                                       boolean expectedLatam, boolean expectedCash) {
         if (!scanning || expectedTaskIndex != taskIndex || expectedLatam != scanningLatam
+                || expectedCash != scanningLatamCash
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         SearchConfig.Task task = tasks.get(taskIndex);
         String key = task.label + "|" + task.dates.get(0);
-        (scanningLatam ? latamFailures : failures).put(
+        (scanningLatamCash ? latamCashFailures
+                : (scanningLatam ? latamFailures : failures)).put(
                 key, "tempo limite — página não concluiu o carregamento");
         webView.stopLoading();
         advance();
@@ -249,14 +274,15 @@ public final class MonitorService extends Service {
                 + "&novo-resultado-voos=true";
     }
 
-    private String buildLatamUrl(SearchConfig.Task task) {
+    private String buildLatamUrl(SearchConfig.Task task, boolean cash) {
         String departure = task.dates.get(0) + "T12:00:00.000Z";
         return "https://www.latamairlines.com/br/pt/oferta-voos"
                 + "?origin=" + encodeUrl(task.from)
                 + "&outbound=" + encodeUrl(departure)
                 + "&destination=" + encodeUrl(task.to)
                 + "&adt=" + config.adults + "&chd=" + config.children
-                + "&inf=0&trip=OW&cabin=Economy&redemption=true&sort=RECOMMENDED"
+                + "&inf=0&trip=OW&cabin=Economy&redemption=" + (!cash)
+                + "&sort=PRICE_ASC"
                 + "&_wt=" + System.currentTimeMillis();
     }
 
@@ -268,24 +294,28 @@ public final class MonitorService extends Service {
         }
     }
 
-    private void inspect(int attempt, int expectedTaskIndex, boolean expectedLatam) {
+    private void inspect(int attempt, int expectedTaskIndex,
+                         boolean expectedLatam, boolean expectedCash) {
         if (!scanning || expectedTaskIndex != taskIndex || expectedLatam != scanningLatam
+                || expectedCash != scanningLatamCash
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
                     if (!scanning || expectedTaskIndex != taskIndex
-                            || expectedLatam != scanningLatam) return;
+                            || expectedLatam != scanningLatam
+                            || expectedCash != scanningLatamCash) return;
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
-                    FlightParser.Result parsed = scanningLatam
-                            ? LatamParser.parse(text, task)
-                            : FlightParser.parse(text, task);
+                    FlightParser.Result parsed = scanningLatamCash
+                            ? LatamCashParser.parse(text, task)
+                            : (scanningLatam ? LatamParser.parse(text, task)
+                            : FlightParser.parse(text, task));
                     String key = task.label + "|" + task.dates.get(0);
-                    Map<String, FlightParser.Result> activeResults = scanningLatam
-                            ? latamResults : results;
-                    Map<String, String> activeFailures = scanningLatam
-                            ? latamFailures : failures;
+                    Map<String, FlightParser.Result> activeResults = scanningLatamCash
+                            ? latamCashResults : (scanningLatam ? latamResults : results);
+                    Map<String, String> activeFailures = scanningLatamCash
+                            ? latamCashFailures : (scanningLatam ? latamFailures : failures);
                     if (parsed != null) {
                         FlightParser.Result old = activeResults.get(key);
                         if (old == null || parsed.hasFlightDetails()
@@ -294,9 +324,10 @@ public final class MonitorService extends Service {
                         }
                     }
                     FlightParser.Result saved = activeResults.get(key);
-                    boolean loading = scanningLatam
-                            ? !LatamParser.hasFinishedLoading(text)
-                            : SearchDiagnostics.isLoading(text);
+                    boolean loading = scanningLatamCash
+                            ? !LatamCashParser.hasFinishedLoading(text)
+                            : (scanningLatam ? !LatamParser.hasFinishedLoading(text)
+                            : SearchDiagnostics.isLoading(text));
                     boolean noFare = SearchDiagnostics.isNoFare(text);
                     if (currentHttpStatus == 403 || currentHttpStatus == 429
                             || currentHttpStatus >= 500 || currentWebViewError != null) {
@@ -313,8 +344,8 @@ public final class MonitorService extends Service {
                         activeFailures.put(key, describeActiveFailure(text));
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(
-                                        attempt + 1, expectedTaskIndex, expectedLatam),
+                        handler.postDelayed(() -> inspect(attempt + 1,
+                                        expectedTaskIndex, expectedLatam, expectedCash),
                                 SearchDiagnostics.INSPECTION_INTERVAL_MS);
                     }
                 });
@@ -373,7 +404,7 @@ public final class MonitorService extends Service {
                     + " milhas. Próxima em " + config.intervalMinutes + " min.");
         }
         int totalQueries = tasks.size()
-                * ((includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0));
+                * ((includeSmiles ? 1 : 0) + (includeLatam ? 2 : 0));
         long average = totalQueries == 0 ? 0 : elapsed / totalQueries;
         summary.append("\nTempo da varredura: ").append(totalQueries).append("/")
                 .append(totalQueries).append(" concluídas • ")
@@ -419,6 +450,18 @@ public final class MonitorService extends Service {
                     }
                     summary.append("\n").append(format(result.miles))
                             .append(" milhas por viajante\n");
+                    if ("LATAM Pass".equals(provider)) {
+                        FlightParser.Result cash = latamCashResults.get(key);
+                        if (cash != null) {
+                            summary.append(formatMoney(cash.miles))
+                                    .append(" em dinheiro por viajante\n");
+                        } else {
+                            String cashFailure = latamCashFailures.get(key);
+                            summary.append("R$ não identificado")
+                                    .append(cashFailure == null ? "" : " • " + cashFailure)
+                                    .append("\n");
+                        }
+                    }
                     if (lowest == null || result.miles < lowest.miles) lowest = result;
                     if (result.miles < config.targetMiles) showOffer(provider, result);
                 }
@@ -453,6 +496,11 @@ public final class MonitorService extends Service {
 
     private String format(int value) {
         return NumberFormat.getIntegerInstance(new Locale("pt", "BR")).format(value);
+    }
+
+    private String formatMoney(long cents) {
+        return NumberFormat.getCurrencyInstance(new Locale("pt", "BR"))
+                .format(cents / 100.0);
     }
 
     private String formatDuration(long milliseconds) {
