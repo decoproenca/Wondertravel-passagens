@@ -59,6 +59,8 @@ public final class MainActivity extends Activity {
     private final Map<String, String> failures = new LinkedHashMap<>();
     private final Map<String, FlightParser.Result> latamResults = new LinkedHashMap<>();
     private final Map<String, String> latamFailures = new LinkedHashMap<>();
+    private final Map<String, FlightParser.Result> latamCashResults = new LinkedHashMap<>();
+    private final Map<String, String> latamCashFailures = new LinkedHashMap<>();
 
     private AutoCompleteTextView originMode;
     private AutoCompleteTextView destination;
@@ -95,6 +97,7 @@ public final class MainActivity extends Activity {
     private int taskIndex = -1;
     private boolean scanning;
     private boolean scanningLatam;
+    private boolean scanningLatamCash;
     private boolean includeSmiles;
     private boolean includeLatam;
     private int currentHttpStatus;
@@ -483,10 +486,13 @@ public final class MainActivity extends Activity {
             return;
         }
         scanningLatam = !includeSmiles;
+        scanningLatamCash = false;
         results.clear();
         failures.clear();
         latamResults.clear();
         latamFailures.clear();
+        latamCashResults.clear();
+        latamCashFailures.clear();
         taskIndex = 0;
         scanStartedAt = SystemClock.elapsedRealtime();
         scanButton.setEnabled(false);
@@ -499,8 +505,16 @@ public final class MainActivity extends Activity {
         if (taskIndex >= tasks.size()) {
             if (!scanningLatam && includeLatam) {
                 scanningLatam = true;
+                scanningLatamCash = false;
                 taskIndex = 0;
                 status.setText("Smiles concluído. Iniciando LATAM Pass…");
+                handler.postDelayed(this::loadTask, 1200);
+                return;
+            }
+            if (scanningLatam && !scanningLatamCash) {
+                scanningLatamCash = true;
+                taskIndex = 0;
+                status.setText("LATAM Pass concluído. Buscando preços em dinheiro…");
                 handler.postDelayed(this::loadTask, 1200);
                 return;
             }
@@ -511,7 +525,8 @@ public final class MainActivity extends Activity {
         currentHttpStatus = 0;
         currentWebViewError = null;
         updateScanProgress();
-        webView.loadUrl(scanningLatam ? buildLatamUrl(task) : buildUrl(task));
+        webView.loadUrl(scanningLatam
+                ? buildLatamUrl(task, scanningLatamCash) : buildUrl(task));
     }
 
     private void updateScanProgress() {
@@ -519,11 +534,14 @@ public final class MainActivity extends Activity {
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         SearchConfig.Task task = tasks.get(taskIndex);
         long elapsed = SystemClock.elapsedRealtime() - scanStartedAt;
-        int providerOffset = scanningLatam && includeSmiles ? tasks.size() : 0;
-        int providerCount = (includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0);
+        int providerOffset = !scanningLatam ? 0
+                : (includeSmiles ? tasks.size() : 0)
+                + (scanningLatamCash ? tasks.size() : 0);
+        int providerCount = (includeSmiles ? 1 : 0) + (includeLatam ? 2 : 0);
         int total = tasks.size() * providerCount;
         int completed = providerOffset + taskIndex;
-        String provider = scanningLatam ? "LATAM Pass" : "Smiles";
+        String provider = scanningLatam
+                ? (scanningLatamCash ? "LATAM em dinheiro" : "LATAM Pass") : "Smiles";
         StringBuilder progress = new StringBuilder("Verificando ").append(provider).append(" • ")
                 .append(completed + 1).append("/").append(total)
                 .append(": ").append(task.label).append(" • ")
@@ -554,14 +572,15 @@ public final class MainActivity extends Activity {
                 + "&novo-resultado-voos=true";
     }
 
-    private String buildLatamUrl(SearchConfig.Task task) {
+    private String buildLatamUrl(SearchConfig.Task task, boolean cash) {
         String departure = task.dates.get(0) + "T12:00:00.000Z";
         return "https://www.latamairlines.com/br/pt/oferta-voos"
                 + "?origin=" + encodeUrl(task.from)
                 + "&outbound=" + encodeUrl(departure)
                 + "&destination=" + encodeUrl(task.to)
                 + "&adt=" + config.adults + "&chd=" + config.children
-                + "&inf=0&trip=OW&cabin=Economy&redemption=true&sort=RECOMMENDED";
+                + "&inf=0&trip=OW&cabin=Economy&redemption=" + (!cash)
+                + "&sort=PRICE_ASC&_wt=" + System.currentTimeMillis();
     }
 
     private String encodeUrl(String value) {
@@ -594,7 +613,9 @@ public final class MainActivity extends Activity {
                 if (scanning && expectedPage) {
                     int expectedTaskIndex = taskIndex;
                     boolean expectedLatam = scanningLatam;
-                    handler.postDelayed(() -> inspect(0, expectedTaskIndex, expectedLatam),
+                    boolean expectedCash = scanningLatamCash;
+                    handler.postDelayed(() -> inspect(
+                                    0, expectedTaskIndex, expectedLatam, expectedCash),
                             scanningLatam ? 7000 : SearchDiagnostics.FIRST_INSPECTION_DELAY_MS);
                 } else if (!scanning) {
                     restoreLastScan();
@@ -622,24 +643,28 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void inspect(int attempt, int expectedTaskIndex, boolean expectedLatam) {
+    private void inspect(int attempt, int expectedTaskIndex,
+                         boolean expectedLatam, boolean expectedCash) {
         if (!scanning || expectedTaskIndex != taskIndex || expectedLatam != scanningLatam
+                || expectedCash != scanningLatamCash
                 || taskIndex < 0 || taskIndex >= tasks.size()) return;
         webView.evaluateJavascript(
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
                     if (!scanning || expectedTaskIndex != taskIndex
-                            || expectedLatam != scanningLatam) return;
+                            || expectedLatam != scanningLatam
+                            || expectedCash != scanningLatamCash) return;
                     String text = decode(encoded);
                     SearchConfig.Task task = tasks.get(taskIndex);
-                    FlightParser.Result parsed = scanningLatam
-                            ? LatamParser.parse(text, task)
-                            : FlightParser.parse(text, task);
+                    FlightParser.Result parsed = scanningLatamCash
+                            ? LatamCashParser.parse(text, task)
+                            : (scanningLatam ? LatamParser.parse(text, task)
+                            : FlightParser.parse(text, task));
                     String key = task.label + "|" + task.dates.get(0);
-                    Map<String, FlightParser.Result> activeResults = scanningLatam
-                            ? latamResults : results;
-                    Map<String, String> activeFailures = scanningLatam
-                            ? latamFailures : failures;
+                    Map<String, FlightParser.Result> activeResults = scanningLatamCash
+                            ? latamCashResults : (scanningLatam ? latamResults : results);
+                    Map<String, String> activeFailures = scanningLatamCash
+                            ? latamCashFailures : (scanningLatam ? latamFailures : failures);
                     if (parsed != null) {
                         FlightParser.Result old = activeResults.get(key);
                         if (old == null || parsed.hasFlightDetails()
@@ -648,9 +673,10 @@ public final class MainActivity extends Activity {
                         }
                     }
                     FlightParser.Result saved = activeResults.get(key);
-                    boolean loading = scanningLatam
-                            ? !LatamParser.hasFinishedLoading(text)
-                            : SearchDiagnostics.isLoading(text);
+                    boolean loading = scanningLatamCash
+                            ? !LatamCashParser.hasFinishedLoading(text)
+                            : (scanningLatam ? !LatamParser.hasFinishedLoading(text)
+                            : SearchDiagnostics.isLoading(text));
                     boolean noFare = SearchDiagnostics.isNoFare(text);
                     if (currentHttpStatus == 403 || currentHttpStatus == 429
                             || currentHttpStatus >= 500 || currentWebViewError != null) {
@@ -667,8 +693,8 @@ public final class MainActivity extends Activity {
                         activeFailures.put(key, describeActiveFailure(text));
                         advance();
                     } else {
-                        handler.postDelayed(() -> inspect(
-                                        attempt + 1, expectedTaskIndex, expectedLatam),
+                        handler.postDelayed(() -> inspect(attempt + 1,
+                                        expectedTaskIndex, expectedLatam, expectedCash),
                                 SearchDiagnostics.INSPECTION_INTERVAL_MS);
                     }
                 });
@@ -721,7 +747,7 @@ public final class MainActivity extends Activity {
                 .append(lowest.miles < config.targetMiles ? "OPORTUNIDADE!" :
                         "acima de " + format(config.targetMiles) + ".");
         int totalQueries = tasks.size()
-                * ((includeSmiles ? 1 : 0) + (includeLatam ? 1 : 0));
+                * ((includeSmiles ? 1 : 0) + (includeLatam ? 2 : 0));
         long average = totalQueries == 0 ? 0 : elapsed / totalQueries;
         summary.append("\nTempo da varredura: ").append(totalQueries).append("/")
                 .append(totalQueries).append(" concluídas • ")
@@ -765,6 +791,18 @@ public final class MainActivity extends Activity {
                     }
                     summary.append("\n").append(format(result.miles))
                             .append(" milhas por viajante\n");
+                    if ("LATAM Pass".equals(provider)) {
+                        FlightParser.Result cash = latamCashResults.get(key);
+                        if (cash != null) {
+                            summary.append(formatMoney(cash.miles))
+                                    .append(" em dinheiro por viajante\n");
+                        } else {
+                            String cashFailure = latamCashFailures.get(key);
+                            summary.append("R$ não identificado")
+                                    .append(cashFailure == null ? "" : " • " + cashFailure)
+                                    .append("\n");
+                        }
+                    }
                     if (lowest == null || result.miles < lowest.miles) lowest = result;
                 }
             }
@@ -815,6 +853,7 @@ public final class MainActivity extends Activity {
             String time = "—";
             String type = "—";
             String miles = "—";
+            String cash = "—";
 
             if (detail.contains("sem tarifa disponível")) {
                 type = "Sem tarifa";
@@ -833,9 +872,14 @@ public final class MainActivity extends Activity {
                 int end = priceLine.indexOf(" milhas");
                 miles = end > 0 ? priceLine.substring(0, end) : priceLine;
             }
+            if (i + 1 < lines.length && lines[i + 1].startsWith("R$")) {
+                String cashLine = lines[++i].trim();
+                int end = cashLine.indexOf(" em dinheiro");
+                cash = end > 0 ? cashLine.substring(0, end) : "—";
+            }
 
             ResultRow row = new ResultRow(currentProvider, route, date, time,
-                    type, miles, parseMiles(miles));
+                    type, miles, parseMiles(miles), cash, parseMoneyCents(cash));
             if (route.startsWith(configuredDestination + " →")) inbound.add(row);
             else outbound.add(row);
         }
@@ -862,6 +906,7 @@ public final class MainActivity extends Activity {
         }
         if (hasLatam) {
             addProgramMatch("LATAM PASS", cheapest(latamOutbound), cheapest(latamInbound), false);
+            addLatamCashMatch(cheapestCash(latamOutbound), cheapestCash(latamInbound));
         }
 
         resultsTitle.setVisibility(View.VISIBLE);
@@ -957,6 +1002,37 @@ public final class MainActivity extends Activity {
         bestMatchContainer.addView(card);
     }
 
+    private void addLatamCashMatch(ResultRow outbound, ResultRow inbound) {
+        TextView card = new TextView(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(12), 0, 0);
+        card.setLayoutParams(params);
+        card.setBackgroundResource(R.drawable.bg_best_match);
+        card.setPadding(dp(16), dp(15), dp(16), dp(15));
+        card.setTextColor(Color.parseColor("#F4EFFA"));
+        card.setTextSize(13);
+        StringBuilder text = new StringBuilder("LATAM • MELHOR PREÇO EM DINHEIRO\n\n");
+        text.append(outbound == null ? "IDA: preço não identificado."
+                : "IDA: " + outbound.route + " • " + outbound.date + "\n"
+                + outbound.cashText + " por viajante");
+        text.append("\n\n");
+        text.append(inbound == null ? "VOLTA: preço não identificado."
+                : "VOLTA: " + inbound.route + " • " + inbound.date + "\n"
+                + inbound.cashText + " por viajante");
+        if (outbound != null && inbound != null) {
+            int passengers = Math.max(1, SearchConfig.load(this).adults
+                    + SearchConfig.load(this).children);
+            long individual = (long) outbound.cashCents + inbound.cashCents;
+            text.append("\n\nTOTAL INDIVIDUAL: ").append(formatMoney(individual))
+                    .append("\nTOTAL PARA ").append(passengers).append(" PASSAGEIRO")
+                    .append(passengers == 1 ? "" : "S").append(": ")
+                    .append(formatMoney(individual * passengers));
+        }
+        card.setText(text.toString());
+        bestMatchContainer.addView(card);
+    }
+
     private void addResultSection(String title, String subtitle, List<ResultRow> rows) {
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.VERTICAL);
@@ -976,7 +1052,10 @@ public final class MainActivity extends Activity {
         heading.addView(route);
         resultsTable.addView(heading);
 
-        addResultRow(new String[]{"ROTA", "DATA", "HORÁRIO", "VOO", "MILHAS"}, true, false);
+        boolean showCash = !rows.isEmpty() && "LATAM Pass".equals(rows.get(0).provider);
+        addResultRow(showCash
+                ? new String[]{"ROTA", "DATA", "HORÁRIO", "VOO", "MILHAS", "R$"}
+                : new String[]{"ROTA", "DATA", "HORÁRIO", "VOO", "MILHAS"}, true, false);
         if (rows.isEmpty()) {
             TextView empty = new TextView(this);
             empty.setText("Nenhum resultado neste trecho.");
@@ -987,13 +1066,21 @@ public final class MainActivity extends Activity {
         }
         for (int i = 0; i < rows.size(); i++) {
             ResultRow row = rows.get(i);
-            addResultRow(new String[]{
+            String[] values = showCash ? new String[]{
+                    row.route.replace(" → ", "\n"),
+                    compactDate(row.date),
+                    row.time.replace("h", ":").replace(" → ", "\n"),
+                    row.type,
+                    row.milesText,
+                    row.cashText
+            } : new String[]{
                     row.route.replace(" → ", "\n"),
                     compactDate(row.date),
                     row.time.replace("h", ":").replace(" → ", "\n"),
                     row.type,
                     row.milesText
-            }, false, i % 2 == 1);
+            };
+            addResultRow(values, false, i % 2 == 1);
         }
     }
 
@@ -1065,9 +1152,28 @@ public final class MainActivity extends Activity {
         return best;
     }
 
+    private ResultRow cheapestCash(List<ResultRow> rows) {
+        ResultRow best = null;
+        for (ResultRow row : rows) {
+            if (row.cashCents < 0) continue;
+            if (best == null || row.cashCents < best.cashCents) best = row;
+        }
+        return best;
+    }
+
     private int parseMiles(String value) {
         try {
             return Integer.parseInt(value.replaceAll("[^0-9]", ""));
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private int parseMoneyCents(String value) {
+        try {
+            String normalized = value.replace("R$", "").trim()
+                    .replace(".", "").replace(',', '.');
+            return (int) Math.round(Double.parseDouble(normalized) * 100.0);
         } catch (Exception ignored) {
             return -1;
         }
@@ -1085,9 +1191,11 @@ public final class MainActivity extends Activity {
         final String type;
         final String milesText;
         final int milesValue;
+        final String cashText;
+        final int cashCents;
 
         ResultRow(String provider, String route, String date, String time, String type,
-                  String milesText, int milesValue) {
+                  String milesText, int milesValue, String cashText, int cashCents) {
             this.provider = provider;
             this.route = route;
             this.date = date;
@@ -1095,6 +1203,8 @@ public final class MainActivity extends Activity {
             this.type = type;
             this.milesText = milesText;
             this.milesValue = milesValue;
+            this.cashText = cashText;
+            this.cashCents = cashCents;
         }
     }
 
@@ -1107,7 +1217,9 @@ public final class MainActivity extends Activity {
                 ? R.drawable.bg_table_header
                 : (alternate ? R.drawable.bg_table_row_alt : R.drawable.bg_table_row));
 
-        float[] weights = {0.85f, 1.05f, 1.15f, 1.05f, 1.15f};
+        float[] weights = values.length == 6
+                ? new float[]{0.75f, 0.95f, 1.05f, 0.95f, 1.05f, 1.05f}
+                : new float[]{0.85f, 1.05f, 1.15f, 1.05f, 1.15f};
         for (int i = 0; i < values.length; i++) {
             TextView cell = new TextView(this);
             cell.setText(values[i]);
@@ -1115,9 +1227,9 @@ public final class MainActivity extends Activity {
             cell.setPadding(dp(3), dp(7), dp(3), dp(7));
             cell.setTextSize(header ? 9.5f : 11.5f);
             cell.setTextColor(Color.parseColor(
-                    header ? "#BBA9E8" : (i == 4 ? "#FF8A5B" : "#F0EAF7")
+                    header ? "#BBA9E8" : (i >= 4 ? "#FF8A5B" : "#F0EAF7")
             ));
-            if (header || i == 4) {
+            if (header || i >= 4) {
                 cell.setTypeface(cell.getTypeface(), android.graphics.Typeface.BOLD);
             }
             row.addView(cell, new LinearLayout.LayoutParams(
@@ -1133,6 +1245,11 @@ public final class MainActivity extends Activity {
 
     private String format(long value) {
         return NumberFormat.getIntegerInstance(new Locale("pt", "BR")).format(value);
+    }
+
+    private String formatMoney(long cents) {
+        return NumberFormat.getCurrencyInstance(new Locale("pt", "BR"))
+                .format(cents / 100.0);
     }
 
     private String formatDuration(long milliseconds) {
