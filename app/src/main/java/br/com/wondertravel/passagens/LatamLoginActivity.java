@@ -8,6 +8,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -27,6 +30,7 @@ public final class LatamLoginActivity extends Activity {
     private LocalDate expectedDate;
     private boolean closing;
     private boolean dateRetryAttempted;
+    private boolean blankRetryAttempted;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable sessionPoll = new Runnable() {
         @Override public void run() {
@@ -77,6 +81,9 @@ public final class LatamLoginActivity extends Activity {
 
         reload.setOnClickListener(v -> {
             dateRetryAttempted = false;
+            blankRetryAttempted = false;
+            status.setText("Reabrindo a busca LATAM…");
+            webView.stopLoading();
             webView.clearCache(false);
             webView.loadUrl(searchUrl);
         });
@@ -120,10 +127,53 @@ public final class LatamLoginActivity extends Activity {
                                     status.setText("Página carregada. Confirmando rota e data…");
                                 }
                             });
+                    handler.postDelayed(() -> recoverBlankPage(url), 6000);
+                }
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    markConnected(false);
+                    status.setText("A LATAM não carregou (erro " + error.getErrorCode()
+                            + "). Toque em ‘Reabrir busca’.");
+                }
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                                            WebResourceResponse response) {
+                if (request.isForMainFrame() && response.getStatusCode() >= 400) {
+                    markConnected(false);
+                    status.setText("A LATAM retornou HTTP " + response.getStatusCode()
+                            + ". Toque em ‘Reabrir busca’.");
                 }
             }
         });
         handler.post(sessionPoll);
+    }
+
+    private void recoverBlankPage(String expectedUrl) {
+        if (closing || webView == null || webView.getUrl() == null
+                || !webView.getUrl().equals(expectedUrl)) return;
+        webView.evaluateJavascript(
+                "(function(){return document.body ? document.body.innerText : '';})()",
+                encoded -> {
+                    String body = decodeJavascriptString(encoded).trim();
+                    if (body.length() >= 40) return;
+                    markConnected(false);
+                    if (!blankRetryAttempted) {
+                        blankRetryAttempted = true;
+                        status.setText("A página da LATAM ficou em branco. Tentando novamente…");
+                        webView.stopLoading();
+                        webView.clearCache(false);
+                        webView.loadUrl(searchUrl);
+                    } else {
+                        status.setText("A página da LATAM não carregou. Verifique a conexão e "
+                                + "toque em ‘Reabrir busca’.");
+                    }
+                });
     }
 
     private void inspectSession(boolean finishAfterInspection) {
@@ -139,6 +189,14 @@ public final class LatamLoginActivity extends Activity {
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
                     String body = decodeJavascriptString(encoded);
+                    if (body.trim().length() < 40) {
+                        markConnected(false);
+                        if (finishAfterInspection) {
+                            status.setText("A página da LATAM ainda não carregou. "
+                                    + "Toque em ‘Reabrir busca’.");
+                        }
+                        return;
+                    }
                     boolean resultPage = url.contains("/oferta-voos")
                             && (body.contains("Escolha um voo")
                             || body.contains("Organizar por")
@@ -187,6 +245,22 @@ public final class LatamLoginActivity extends Activity {
                 "(function(){return document.body ? document.body.innerText : '';})()",
                 encoded -> {
                     String body = decodeJavascriptString(encoded);
+                    if (body.trim().length() < 40) {
+                        markConnected(false);
+                        status.setText("A página da LATAM está vazia; não foi possível validar "
+                                + "a sessão. Toque em ‘Reabrir busca’.");
+                        return;
+                    }
+                    boolean resultPage = url.contains("/oferta-voos")
+                            && (body.contains("Escolha um voo")
+                            || body.contains("Organizar por")
+                            || body.toLowerCase(Locale.ROOT).contains("latam pass"));
+                    if (!resultPage) {
+                        markConnected(false);
+                        status.setText("A busca LATAM ainda não está pronta. Aguarde ou toque "
+                                + "em ‘Reabrir busca’.");
+                        return;
+                    }
                     if (!bodyMatchesExpectedDate(body)) {
                         status.setText("A página aberta não corresponde a "
                                 + displayDate(expectedDate) + ". Reabrindo a busca correta…");
